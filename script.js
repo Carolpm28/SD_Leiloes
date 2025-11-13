@@ -1,77 +1,69 @@
-// Navigation System
+// ==================== CONFIGURAÇÃO ====================
+
+// URL base da API - muda isto dependendo do cliente
+const API_BASE_URL = 'http://localhost:5001';
+
+// ==================== NAVEGAÇÃO ====================
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Get all navigation links
+    // Inicializar sistema
+    initializeApp();
+    
+    // Configurar navegação
+    setupNavigation();
+    
+    // Configurar formulários
+    setupForms();
+    
+    // Carregar dados iniciais
+    loadInitialData();
+});
+
+function initializeApp() {
+    console.log('🚀 Inicializando aplicação...');
+    
+    // Verificar conexão com API
+    checkAPIConnection();
+    
+    // Configurar auto-refresh
+    setInterval(refreshAuctions, 30000); // Atualiza a cada 30 segundos
+}
+
+async function checkAPIConnection() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/info`);
+        const info = await response.json();
+        console.log('Conectado ao backend:', info);
+    } catch (error) {
+        console.error('Erro ao conectar ao backend:', error);
+        showNotification('Erro ao conectar ao servidor!', 'error');
+    }
+}
+
+function setupNavigation() {
     const navLinks = document.querySelectorAll('.nav-link');
     
-    // Add click event to each navigation link
     navLinks.forEach(link => {
         link.addEventListener('click', function(e) {
             e.preventDefault();
-            
-            // Get the page to show
             const pageToShow = this.getAttribute('data-page');
-            
-            // Navigate to the page
             navigateTo(pageToShow);
         });
     });
+}
 
-    // Handle form submission
-    const formCriarLeilao = document.getElementById('formCriarLeilao');
-    if (formCriarLeilao) {
-        formCriarLeilao.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Get form data
-            const formData = {
-                descricao: document.getElementById('itemDescricao').value,
-                detalhes: document.getElementById('itemDetalhes').value,
-                categoria: document.getElementById('categoria').value,
-                precoMinimo: document.getElementById('precoMinimo').value,
-                dataEncerramento: document.getElementById('dataEncerramento').value,
-                horaEncerramento: document.getElementById('horaEncerramento').value,
-                imagem: document.getElementById('imagemItem').files[0]
-            };
-            
-            console.log('Criar leilão:', formData);
-            
-            // Show success message (temporary)
-            alert('Leilão criado com sucesso!\n\nEsta é uma versão de demonstração. Em produção, os dados seriam enviados para o sistema P2P.');
-            
-            // Reset form
-            this.reset();
-            
-            // Navigate to "Meus Leilões"
-            navigateTo('meus-leiloes');
-        });
-    }
-
-    // Set minimum date to today for auction end date
-    const dataEncerramento = document.getElementById('dataEncerramento');
-    if (dataEncerramento) {
-        const today = new Date().toISOString().split('T')[0];
-        dataEncerramento.min = today;
-    }
-});
-
-/**
- * Navigate to a specific page
- * @param {string} pageName - The name of the page to navigate to
- */
 function navigateTo(pageName) {
-    // Hide all page sections
+    // Esconder todas as páginas
     const allPages = document.querySelectorAll('.page-section');
-    allPages.forEach(page => {
-        page.classList.remove('active');
-    });
+    allPages.forEach(page => page.classList.remove('active'));
     
-    // Show the selected page
+    // Mostrar página selecionada
     const selectedPage = document.getElementById(`page-${pageName}`);
     if (selectedPage) {
         selectedPage.classList.add('active');
     }
     
-    // Update active nav link
+    // Atualizar nav link ativo
     const allNavLinks = document.querySelectorAll('.nav-link');
     allNavLinks.forEach(link => {
         link.classList.remove('active');
@@ -80,176 +72,430 @@ function navigateTo(pageName) {
         }
     });
     
-    // Scroll to top
+    // Carregar dados da página
+    loadPageData(pageName);
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// Filter functionality
-document.addEventListener('DOMContentLoaded', function() {
-    const btnFilter = document.querySelector('.btn-filter');
-    
-    if (btnFilter) {
-        btnFilter.addEventListener('click', function() {
-            // Get filter values
-            const searchTerm = document.querySelector('.filter-input').value;
-            const categoria = document.querySelector('.filter-select').value;
-            
-            console.log('Aplicar filtros:', {
-                searchTerm,
-                categoria
-            });
-            
-            // In production, this would filter the auction cards
-            alert('Filtros aplicados!\n\nEsta é uma versão de demonstração. Em produção, os leilões seriam filtrados.');
-        });
+async function loadPageData(pageName) {
+    switch(pageName) {
+        case 'leiloes':
+            await loadActiveAuctions();
+            break;
+        case 'meus-leiloes':
+            await loadMyAuctions();
+            break;
+        case 'minhas-licitacoes':
+            await loadMyBids();
+            break;
     }
-});
+}
 
-// Auction card buttons
-document.addEventListener('DOMContentLoaded', function() {
-    // Add event listeners to all auction buttons
-    document.addEventListener('click', function(e) {
-        // Handle "VER DETALHES E LICITAR" button
-        if (e.target.classList.contains('btn-auction')) {
-            const card = e.target.closest('.auction-card');
-            const title = card.querySelector('.auction-title').textContent;
-            
-            console.log('Ver detalhes do leilão:', title);
-            alert(`Ver detalhes e licitar: ${title}\n\nEsta funcionalidade será implementada na próxima fase.`);
+// ==================== CARREGAR DADOS INICIAIS ====================
+
+async function loadInitialData() {
+    await loadActiveAuctions();
+}
+
+async function refreshAuctions() {
+    const currentPage = document.querySelector('.page-section.active');
+    if (currentPage && currentPage.id === 'page-leiloes') {
+        await loadActiveAuctions();
+    }
+}
+
+// ==================== LEILÕES ATIVOS ====================
+
+async function loadActiveAuctions() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions/active`);
+        const auctions = await response.json();
+        
+        console.log('📥 Leilões ativos carregados:', auctions.length);
+        
+        const grid = document.querySelector('#page-leiloes .auctions-grid');
+        
+        if (auctions.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-state">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <h3>Nenhum leilão ativo no momento</h3>
+                    <p>Seja o primeiro a criar um leilão!</p>
+                    <button class="btn-primary" onclick="navigateTo('criar')">CRIAR LEILÃO</button>
+                </div>
+            `;
+            return;
         }
         
-        // Handle "CANCELAR LEILÃO" button
-        if (e.target.classList.contains('btn-danger')) {
-            const card = e.target.closest('.auction-card');
-            const title = card.querySelector('.auction-title').textContent;
-            
-            if (confirm(`Tem certeza que deseja cancelar o leilão "${title}"?`)) {
-                console.log('Cancelar leilão:', title);
-                alert('Leilão cancelado com sucesso!');
-                // In production, remove the card or update its status
-            }
-        }
-    });
-});
+        grid.innerHTML = auctions.map(auction => createAuctionCard(auction)).join('');
+        
+    } catch (error) {
+        console.error('Erro ao carregar leilões:', error);
+        showNotification('Erro ao carregar leilões!', 'error');
+    }
+}
 
-// Login and Register buttons
-document.addEventListener('DOMContentLoaded', function() {
+function createAuctionCard(auction) {
+    const closingDate = new Date(auction.closing_date);
+    const now = new Date();
+    const timeLeft = closingDate - now;
+    const daysLeft = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
+    const hoursLeft = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    
+    const minBidText = auction.min_bid ? `€${auction.min_bid.toFixed(2)}` : 'Sem mínimo';
+    
+    return `
+        <div class="auction-card" data-auction-id="${auction.auction_id}">
+            <div class="auction-image">
+                <img src="https://via.placeholder.com/400x300?text=${encodeURIComponent(auction.item)}" 
+                     alt="${auction.item}">
+                <div class="auction-badge">Ativo</div>
+            </div>
+            <div class="auction-content">
+                <h3 class="auction-title">${auction.item}</h3>
+                <div class="auction-info">
+                    <div class="info-item">
+                        <span class="info-label">Preço Mínimo:</span>
+                        <span class="info-value">${minBidText}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Termina em:</span>
+                        <span class="info-value">${daysLeft}d ${hoursLeft}h</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Data de Encerramento:</span>
+                        <span class="info-value">${closingDate.toLocaleString('pt-PT')}</span>
+                    </div>
+                </div>
+                <button class="btn-primary btn-full" onclick="showBidModal('${auction.auction_id}', '${auction.item}', ${auction.min_bid || 0})">
+                    VER DETALHES E LICITAR
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// ==================== MEUS LEILÕES ====================
+
+async function loadMyAuctions() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions/mine`);
+        const auctions = await response.json();
+        
+        console.log('Meus leilões carregados:', auctions.length);
+        
+        const grid = document.querySelector('#page-meus-leiloes .auctions-grid');
+        
+        if (auctions.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-state">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <h3>Ainda não criou nenhum leilão</h3>
+                    <p>Crie o seu primeiro leilão e comece a vender!</p>
+                    <button class="btn-primary" onclick="navigateTo('criar')">CRIAR LEILÃO</button>
+                </div>
+            `;
+            return;
+        }
+        
+        grid.innerHTML = auctions.map(auction => createMyAuctionCard(auction)).join('');
+        
+    } catch (error) {
+        console.error('Erro ao carregar meus leilões:', error);
+        showNotification('Erro ao carregar seus leilões!', 'error');
+    }
+}
+
+function createMyAuctionCard(auction) {
+    const closingDate = new Date(auction.closing_date);
+    
+    return `
+        <div class="auction-card my-auction" data-auction-id="${auction.auction_id}">
+            <div class="auction-image">
+                <img src="https://via.placeholder.com/400x300?text=${encodeURIComponent(auction.item)}" 
+                     alt="${auction.item}">
+                <div class="auction-badge auction-badge-mine">Meu Leilão</div>
+            </div>
+            <div class="auction-content">
+                <h3 class="auction-title">${auction.item}</h3>
+                <div class="auction-info">
+                    <div class="info-item">
+                        <span class="info-label">Preço Mínimo:</span>
+                        <span class="info-value">€${auction.min_bid ? auction.min_bid.toFixed(2) : '0.00'}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Encerra em:</span>
+                        <span class="info-value">${closingDate.toLocaleString('pt-PT')}</span>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-primary" onclick="viewAuctionBids('${auction.auction_id}')">
+                        VER LICITAÇÕES
+                    </button>
+                    <button class="btn-secondary" onclick="viewWinner('${auction.auction_id}')">
+                        VER VENCEDOR
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function viewAuctionBids(auctionId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions/${auctionId}/bids`);
+        const bids = await response.json();
+        
+        if (bids.length === 0) {
+            alert('Ainda não há licitações neste leilão.');
+            return;
+        }
+        
+        const bidsText = bids.map((bid, index) => 
+            `${index + 1}. €${bid.value.toFixed(2)} - ${new Date(bid.timestamp).toLocaleString('pt-PT')}`
+        ).join('\n');
+        
+        alert(`Licitações recebidas (${bids.length}):\n\n${bidsText}`);
+        
+    } catch (error) {
+        console.error('Erro ao carregar licitações:', error);
+        showNotification('Erro ao carregar licitações!', 'error');
+    }
+}
+
+async function viewWinner(auctionId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions/${auctionId}/winner`);
+        
+        if (response.status === 404) {
+            alert('Ainda não há licitações neste leilão.');
+            return;
+        }
+        
+        const winner = await response.json();
+        alert(`🏆 VENCEDOR ATUAL:\n\nValor: €${winner.value.toFixed(2)}\nData: ${new Date(winner.timestamp).toLocaleString('pt-PT')}`);
+        
+    } catch (error) {
+        console.error('Erro ao carregar vencedor:', error);
+        showNotification('Erro ao carregar vencedor!', 'error');
+    }
+}
+
+// ==================== MINHAS LICITAÇÕES ====================
+
+async function loadMyBids() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/bids/mine`);
+        const bids = await response.json();
+        
+        console.log('Minhas licitações carregadas:', bids.length);
+        
+        const grid = document.querySelector('#page-minhas-licitacoes .auctions-grid');
+        
+        if (bids.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-state">
+                    <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <h3>Ainda não fez nenhuma licitação</h3>
+                    <p>Explore os leilões ativos e faça a sua primeira licitação!</p>
+                    <button class="btn-primary" onclick="navigateTo('leiloes')">VER LEILÕES</button>
+                </div>
+            `;
+            return;
+        }
+        
+        // Agrupar por leilão
+        const bidsByAuction = {};
+        for (const bid of bids) {
+            if (!bidsByAuction[bid.auction_id]) {
+                bidsByAuction[bid.auction_id] = [];
+            }
+            bidsByAuction[bid.auction_id].push(bid);
+        }
+        
+        // Criar cards
+        let html = '';
+        for (const auctionId in bidsByAuction) {
+            const auctionBids = bidsByAuction[auctionId];
+            const highestBid = auctionBids.reduce((max, bid) => bid.value > max.value ? bid : max);
+            
+            html += `
+                <div class="auction-card">
+                    <div class="auction-content">
+                        <h3 class="auction-title">Leilão: ${auctionId.substring(0, 8)}...</h3>
+                        <div class="auction-info">
+                            <div class="info-item">
+                                <span class="info-label">Suas licitações:</span>
+                                <span class="info-value">${auctionBids.length}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Maior valor:</span>
+                                <span class="info-value">€${highestBid.value.toFixed(2)}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Última licitação:</span>
+                                <span class="info-value">${new Date(highestBid.timestamp).toLocaleString('pt-PT')}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        grid.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro ao carregar licitações:', error);
+        showNotification('Erro ao carregar suas licitações!', 'error');
+    }
+}
+
+// ==================== CRIAR LEILÃO ====================
+
+function setupForms() {
+    const formCriarLeilao = document.getElementById('formCriarLeilao');
+    if (formCriarLeilao) {
+        formCriarLeilao.addEventListener('submit', handleCreateAuction);
+    }
+    
+    // Set minimum date to today
+    const dataEncerramento = document.getElementById('dataEncerramento');
+    if (dataEncerramento) {
+        const today = new Date().toISOString().split('T')[0];
+        dataEncerramento.min = today;
+    }
+    
+    // Login/Register buttons
     const btnLogin = document.getElementById('btnLogin');
     const btnRegister = document.getElementById('btnRegister');
     
-    if (btnLogin) {
-        btnLogin.addEventListener('click', function() {
-            navigateTo('login');
-        });
-    }
-    
-    if (btnRegister) {
-        btnRegister.addEventListener('click', function() {
-            navigateTo('register');
-        });
-    }
-
-    // Handle login form submission
-    const formLogin = document.getElementById('formLogin');
-    if (formLogin) {
-        formLogin.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            const rememberMe = document.getElementById('rememberMe').checked;
-            
-            console.log('Login attempt:', { email, rememberMe });
-            
-            // Simulate login process
-            alert('Login bem-sucedido!\n\nEsta é uma versão de demonstração.\n\nEm produção:\n✓ Autenticação segura\n✓ Validação de credenciais\n✓ Carregamento de chaves criptográficas');
-            
-            // Navigate to main page
-            navigateTo('leiloes');
-            
-            // Update UI to show logged in state (future implementation)
-            updateLoginState(email);
-        });
-    }
-
-    // Handle register form submission
-    const formRegister = document.getElementById('formRegister');
-    if (formRegister) {
-        formRegister.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const name = document.getElementById('registerName').value;
-            const email = document.getElementById('registerEmail').value;
-            const username = document.getElementById('registerUsername').value;
-            const password = document.getElementById('registerPassword').value;
-            const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
-            const acceptTerms = document.getElementById('acceptTerms').checked;
-            
-            // Validate passwords match
-            if (password !== passwordConfirm) {
-                alert('As palavras-passe não coincidem!');
-                return;
-            }
-            
-            // Validate password strength
-            if (password.length < 8) {
-                alert('A palavra-passe deve ter pelo menos 8 caracteres!');
-                return;
-            }
-            
-            if (!acceptTerms) {
-                alert('Deve aceitar os termos e condições!');
-                return;
-            }
-            
-            console.log('Register attempt:', { name, email, username });
-            
-            // Simulate registration process
-            alert('Registo bem-sucedido!\n\n✓ Conta criada\n✓ Par de chaves criptográficas gerado\n✓ Registo no servidor de descoberta\n\nVerifique o seu email para ativar a conta.');
-            
-            // Navigate to login page
-            navigateTo('login');
-            
-            // Pre-fill email in login form
-            setTimeout(() => {
-                const loginEmail = document.getElementById('loginEmail');
-                if (loginEmail) {
-                    loginEmail.value = email;
-                }
-            }, 100);
-        });
-    }
-});
-
-// Update login state (placeholder for future implementation)
-function updateLoginState(email) {
-    console.log('User logged in:', email);
-    // Future: Update header buttons to show user profile
-    // Future: Enable auction creation and bidding
+    if (btnLogin) btnLogin.addEventListener('click', () => navigateTo('login'));
+    if (btnRegister) btnRegister.addEventListener('click', () => navigateTo('register'));
 }
 
-// Update auction countdown (example for future implementation)
-function updateCountdowns() {
-    // This would update countdown timers on auction cards
-    // To be implemented in production
+async function handleCreateAuction(e) {
+    e.preventDefault();
+    
+    const item = document.getElementById('itemDescricao').value;
+    const dataEncerramento = document.getElementById('dataEncerramento').value;
+    const horaEncerramento = document.getElementById('horaEncerramento').value;
+    const minBid = document.getElementById('precoMinimo').value;
+    
+    // Combinar data e hora no formato ISO
+    const closingDate = `${dataEncerramento}T${horaEncerramento}:00`;
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                item: item,
+                closing_date: closingDate,
+                min_bid: minBid ? parseFloat(minBid) : null
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Erro ao criar leilão');
+        }
+        
+        const auction = await response.json();
+        console.log('Leilão criado:', auction);
+        
+        showNotification('Leilão criado com sucesso e enviado para a rede P2P!', 'success');
+        
+        // Reset form
+        e.target.reset();
+        
+        // Navigate to my auctions
+        navigateTo('meus-leiloes');
+        
+    } catch (error) {
+        console.error('Erro ao criar leilão:', error);
+        showNotification('Erro ao criar leilão!', 'error');
+    }
 }
 
-// Auto-update every minute
-setInterval(updateCountdowns, 60000);
+// ==================== LICITAR ====================
 
-// Form validation helpers
-function validateForm(formId) {
-    const form = document.getElementById(formId);
-    if (!form) return false;
+function showBidModal(auctionId, itemName, minBid) {
+    const bidValue = prompt(`Fazer licitação em: ${itemName}\n\nPreço mínimo: €${minBid.toFixed(2)}\n\nInsira o valor da sua licitação (€):`);
     
-    // Check if form is valid
-    if (!form.checkValidity()) {
-        form.reportValidity();
-        return false;
+    if (bidValue === null) return; // Cancelado
+    
+    const value = parseFloat(bidValue);
+    
+    if (isNaN(value) || value <= 0) {
+        alert('Valor inválido!');
+        return;
     }
     
-    return true;
+    if (minBid && value < minBid) {
+        alert(`O valor deve ser pelo menos €${minBid.toFixed(2)}!`);
+        return;
+    }
+    
+    placeBid(auctionId, value);
 }
 
-// Export navigation function for inline onclick handlers
+async function placeBid(auctionId, value) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/bids`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                auction_id: auctionId,
+                value: value
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Erro ao fazer licitação');
+        }
+        
+        const bid = await response.json();
+        console.log('Licitação feita:', bid);
+        
+        showNotification(`Licitação de €${value.toFixed(2)} enviada com sucesso!`, 'success');
+        
+        // Recarregar leilões
+        await loadActiveAuctions();
+        
+    } catch (error) {
+        console.error('Erro ao fazer licitação:', error);
+        alert(`Erro: ${error.message}`);
+    }
+}
+
+// ==================== NOTIFICAÇÕES ====================
+
+function showNotification(message, type = 'info') {
+    // Por agora usa alert simples
+    // TODO: Implementar sistema de notificações bonito
+    alert(message);
+}
+
+// ==================== EXPORT ====================
+
 window.navigateTo = navigateTo;
+window.showBidModal = showBidModal;
+window.viewAuctionBids = viewAuctionBids;
+window.viewWinner = viewWinner;
