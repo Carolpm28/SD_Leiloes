@@ -211,7 +211,6 @@ def demo_blind_signature_flow():
     print("   ✓ Server keys ready\n")
     
     bs = BlindSignature()
-    
     # Cliente quer obter token anónimo
     print("2. Client wants anonymous token...")
     message = "ANONYMOUS_TOKEN_REQUEST_" + secrets.token_hex(16)
