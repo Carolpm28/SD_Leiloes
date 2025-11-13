@@ -15,7 +15,7 @@ class Database:
         Se não existir, cria as tabelas necessárias
         """
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
         self.conn.row_factory = sqlite3.Row  # Permite aceder por nome de coluna
         self._create_tables()
     
@@ -30,6 +30,7 @@ class Database:
                 item TEXT NOT NULL,
                 closing_date TEXT NOT NULL,
                 min_bid REAL,
+                categoria TEXT,
                 signature TEXT,
                 seller_anonymous_id TEXT,
                 is_mine INTEGER DEFAULT 0,
@@ -69,27 +70,50 @@ class Database:
     # ==================== AUCTIONS ====================
     
     def save_auction(self, auction: Auction, is_mine=False):
-        """
-        Guarda um leilão na base de dados
-        is_mine=True se for um leilão que EU criei
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO auctions 
-            (auction_id, item, closing_date, min_bid, signature, 
-             seller_anonymous_id, is_mine)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            auction.auction_id,
-            auction.item,
-            auction.closing_date,
-            auction.min_bid,
-            auction.signature,
-            auction.seller_anonymous_id,
-            1 if is_mine else 0
-        ))
-        self.conn.commit()
-        return auction.auction_id
+        """Guarda um leilão na base de dados"""
+        max_retries = 5
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                cursor = self.conn.cursor()
+                
+                # Verificar se já existe
+                cursor.execute("SELECT is_mine FROM auctions WHERE auction_id = ?", (auction.auction_id,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Já existe - NÃO atualizar o is_mine!
+                    return auction.auction_id
+                
+                # Não existe - inserir novo
+                # Não existe - inserir novo
+                cursor.execute("""
+                    INSERT INTO auctions 
+                    (auction_id, item, closing_date, min_bid, categoria, signature, 
+                    seller_anonymous_id, is_mine)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    auction.auction_id,
+                    auction.item,
+                    auction.closing_date,
+                    auction.min_bid,
+                    auction.categoria,  # ← Agora está na posição correta
+                    auction.signature,
+                    auction.seller_anonymous_id,
+                    1 if is_mine else 0
+                ))
+                self.conn.commit()
+                return auction.auction_id
+                
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < max_retries - 1:
+                    import time
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    raise
     
     def get_auction(self, auction_id: str) -> Optional[Auction]:
         """Obtém um leilão específico por ID"""
@@ -138,28 +162,39 @@ class Database:
     # ==================== BIDS ====================
     
     def save_bid(self, bid: Bid, is_mine=False):
-        """
-        Guarda um bid na base de dados
-        is_mine=True se for um bid que EU fiz
-        """
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO bids 
-            (bid_id, auction_id, value, timestamp, signature, 
-             bidder_cert, bidder_anonymous_id, is_mine)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            bid.bid_id,
-            bid.auction_id,
-            bid.value,
-            bid.timestamp,
-            bid.signature,
-            bid.bidder_cert,
-            bid.bidder_anonymous_id,
-            1 if is_mine else 0
-        ))
-        self.conn.commit()
-        return bid.bid_id
+        """Guarda um bid na base de dados"""
+        max_retries = 5
+        retry_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO bids 
+                    (bid_id, auction_id, value, timestamp, signature, 
+                    bidder_cert, bidder_anonymous_id, is_mine)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    bid.bid_id,
+                    bid.auction_id,
+                    bid.value,
+                    bid.timestamp,
+                    bid.signature,
+                    bid.bidder_cert,
+                    bid.bidder_anonymous_id,
+                    1 if is_mine else 0
+                ))
+                self.conn.commit()
+                return bid.bid_id
+                
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < max_retries - 1:
+                    import time
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    raise
     
     def get_bids_for_auction(self, auction_id: str) -> List[Bid]:
         """Obtém todos os bids de um leilão específico"""
@@ -208,7 +243,8 @@ class Database:
         auction = Auction(
             item=row["item"],
             closing_date=row["closing_date"],
-            min_bid=row["min_bid"]
+            min_bid=row["min_bid"],
+            categoria=row["categoria"] if "categoria" in row.keys() else None  # ← MUDA ISTO
         )
         auction.auction_id = row["auction_id"]
         auction.signature = row["signature"]

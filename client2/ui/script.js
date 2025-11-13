@@ -1,7 +1,7 @@
 // ==================== CONFIGURAÇÃO ====================
 
 // URL base da API - muda isto dependendo do cliente
-const API_BASE_URL = 'http://localhost:5001';
+const API_BASE_URL = 'http://localhost:5002';
 
 // ==================== NAVEGAÇÃO ====================
 
@@ -20,11 +20,11 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initializeApp() {
-    console.log('🚀 Inicializando aplicação...');
+    console.log('Inicializando aplicação...');
     
     // Verificar conexão com API
     checkAPIConnection();
-    
+    setupFilters();
     // Configurar auto-refresh
     setInterval(refreshAuctions, 30000); // Atualiza a cada 30 segundos
 }
@@ -393,6 +393,7 @@ async function handleCreateAuction(e) {
     const dataEncerramento = document.getElementById('dataEncerramento').value;
     const horaEncerramento = document.getElementById('horaEncerramento').value;
     const minBid = document.getElementById('precoMinimo').value;
+    const categoria = document.getElementById('categoria').value;
     
     // Combinar data e hora no formato ISO
     const closingDate = `${dataEncerramento}T${horaEncerramento}:00`;
@@ -406,7 +407,8 @@ async function handleCreateAuction(e) {
             body: JSON.stringify({
                 item: item,
                 closing_date: closingDate,
-                min_bid: minBid ? parseFloat(minBid) : null
+                min_bid: minBid ? parseFloat(minBid) : null,
+                categoria: categoria
             })
         });
         
@@ -499,3 +501,265 @@ window.navigateTo = navigateTo;
 window.showBidModal = showBidModal;
 window.viewAuctionBids = viewAuctionBids;
 window.viewWinner = viewWinner;
+
+// ==================== FILTROS ====================
+
+let currentFilters = {
+    searchTerm: '',
+    categoria: '',
+    precoMinimo: '',
+    estado: '',
+    ordenarPor: ''
+};
+
+function setupFilters() {
+    const btnFilter = document.querySelector('.btn-filter');
+    
+    if (btnFilter) {
+        btnFilter.addEventListener('click', applyFilters);
+    }
+    
+    // Enter para pesquisar
+    const searchInput = document.querySelector('.filter-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                applyFilters();
+            }
+        });
+    }
+    
+    // Limpar filtros ao navegar para leilões
+    const navLeiloes = document.querySelector('[data-page="leiloes"]');
+    if (navLeiloes) {
+        navLeiloes.addEventListener('click', function() {
+            setTimeout(resetFilters, 100);
+        });
+    }
+}
+
+function resetFilters() {
+    const searchInput = document.querySelector('.filter-input');
+    const selects = document.querySelectorAll('.filter-select');
+    
+    if (searchInput) searchInput.value = '';
+    selects.forEach(select => select.selectedIndex = 0);
+    
+    currentFilters = {
+        searchTerm: '',
+        categoria: '',
+        precoMinimo: '',
+        estado: '',
+        ordenarPor: ''
+    };
+    
+    loadActiveAuctions();
+}
+
+async function applyFilters() {
+    // Obter valores dos filtros de forma mais robusta
+    const filtersContainer = document.querySelector('.filters-sidebar');
+    if (!filtersContainer) return;
+    
+    const searchInput = filtersContainer.querySelector('.filter-input');
+    const selects = filtersContainer.querySelectorAll('.filter-select');
+    
+    currentFilters.searchTerm = searchInput?.value.trim().toLowerCase() || '';
+    currentFilters.categoria = selects[0]?.value || '';
+    currentFilters.precoMinimo = selects[1]?.value || '';
+    currentFilters.estado = selects[2]?.value || '';
+    currentFilters.ordenarPor = selects[3]?.value || '';
+    
+    console.log('Aplicando filtros:', currentFilters);
+    
+    try {
+        // Mostrar loading
+        const grid = document.querySelector('#page-leiloes .auctions-grid');
+        grid.innerHTML = '<div style="text-align: center; padding: 40px;">Carregando...</div>';
+        
+        // Carregar todos os leilões
+        const response = await fetch(`${API_BASE_URL}/api/auctions/active`);
+        
+        if (!response.ok) {
+            throw new Error('Erro ao carregar leilões');
+        }
+        
+        let auctions = await response.json();
+        console.log(`Total de leilões: ${auctions.length}`);
+        
+        // APLICAR FILTROS
+        auctions = filterAuctions(auctions);
+        
+        console.log(`Após filtros: ${auctions.length} leilões`);
+        
+        // Renderizar resultados
+        renderFilteredAuctions(auctions);
+        
+    } catch (error) {
+        console.error('Erro ao aplicar filtros:', error);
+        showNotification('Erro ao aplicar filtros!', 'error');
+        
+        // Mostrar erro na UI
+        const grid = document.querySelector('#page-leiloes .auctions-grid');
+        grid.innerHTML = `
+            <div class="empty-state">
+                <h3>Erro ao carregar leilões</h3>
+                <p>${error.message}</p>
+                <button class="btn-primary" onclick="loadActiveAuctions()">TENTAR NOVAMENTE</button>
+            </div>
+        `;
+    }
+}
+
+function filterAuctions(auctions) {
+    let filtered = [...auctions];
+    
+    // FILTRO 1: Pesquisa por texto
+    if (currentFilters.searchTerm) {
+        filtered = filtered.filter(auction => 
+            auction.item.toLowerCase().includes(currentFilters.searchTerm)
+        );
+        console.log(`  └─ Após pesquisa "${currentFilters.searchTerm}": ${filtered.length}`);
+    }
+    
+    // FILTRO 2: Categoria
+    if (currentFilters.categoria) {
+        filtered = filtered.filter(auction => {
+            if (!auction.categoria) return false;
+            
+            // Normaliza AMBOS para comparar (lowercase, sem acentos)
+            const filterCat = currentFilters.categoria.toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const auctionCat = auction.categoria.toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            
+            return auctionCat === filterCat;
+        });
+        console.log(`  └─ Após filtro categoria "${currentFilters.categoria}": ${filtered.length}`);
+    }
+    
+    // FILTRO 3: Preço mínimo
+    if (currentFilters.precoMinimo) {
+        const [min, max] = parsePrecoRange(currentFilters.precoMinimo);
+        
+        filtered = filtered.filter(auction => {
+            const price = auction.min_bid || 0;
+            
+            if (max === null) {
+                return price >= min; // Ex: 1000+
+            }
+            
+            return price >= min && price <= max;
+        });
+        
+        console.log(`  └─ Após filtro preço (${min}-${max || '∞'}): ${filtered.length}`);
+    }
+    
+    // FILTRO 4: Estado (aberto/encerrado)
+    if (currentFilters.estado) {
+        const now = new Date();
+        
+        if (currentFilters.estado === 'aberto') {
+            filtered = filtered.filter(auction => {
+                const closingDate = new Date(auction.closing_date);
+                return closingDate > now;
+            });
+        } else if (currentFilters.estado === 'encerrado') {
+            filtered = filtered.filter(auction => {
+                const closingDate = new Date(auction.closing_date);
+                return closingDate <= now;
+            });
+        }
+        
+        console.log(`  └─ Após filtro estado "${currentFilters.estado}": ${filtered.length}`);
+    }
+    
+    // ORDENAÇÃO
+    if (currentFilters.ordenarPor) {
+        switch (currentFilters.ordenarPor) {
+            case 'recentes':
+                // Mais recentes primeiro (assumindo que created_at existe ou usando auction_id)
+                filtered.sort((a, b) => b.auction_id.localeCompare(a.auction_id));
+                console.log('  └─ Ordenado por: Mais Recentes');
+                break;
+                
+            case 'termina-breve':
+                // Fecha mais cedo primeiro
+                filtered.sort((a, b) => {
+                    const dateA = new Date(a.closing_date);
+                    const dateB = new Date(b.closing_date);
+                    return dateA - dateB;
+                });
+                console.log('  └─ Ordenado por: Termina Breve');
+                break;
+                
+            case 'preco-baixo':
+                // Preço mais baixo primeiro
+                filtered.sort((a, b) => (a.min_bid || 0) - (b.min_bid || 0));
+                console.log('  └─ Ordenado por: Preço Baixo → Alto');
+                break;
+                
+            case 'preco-alto':
+                // Preço mais alto primeiro
+                filtered.sort((a, b) => (b.min_bid || 0) - (a.min_bid || 0));
+                console.log('  └─ Ordenado por: Preço Alto → Baixo');
+                break;
+        }
+    }
+    
+    return filtered;
+}
+
+function parsePrecoRange(value) {
+    if (!value || value === '') return [0, null];
+    
+    // "0-100" -> [0, 100]
+    if (value.includes('-')) {
+        const parts = value.split('-');
+        const min = parseInt(parts[0]) || 0;
+        const max = parseInt(parts[1]) || 0;
+        return [min, max];
+    }
+    
+    // "1000+" -> [1000, null]
+    if (value.includes('+')) {
+        const min = parseInt(value.replace('+', '')) || 0;
+        return [min, null];
+    }
+    
+    return [0, null];
+}
+
+function renderFilteredAuctions(auctions) {
+    const grid = document.querySelector('#page-leiloes .auctions-grid');
+    
+    if (!grid) {
+        console.error('Grid não encontrado!');
+        return;
+    }
+    
+    if (auctions.length === 0) {
+        grid.innerHTML = `
+            <div class="empty-state">
+                <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <h3>Nenhum leilão encontrado</h3>
+                <p>Tente ajustar os filtros ou criar um novo leilão!</p>
+                <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                    <button class="btn-secondary" onclick="resetFilters()">LIMPAR FILTROS</button>
+                    <button class="btn-primary" onclick="navigateTo('criar')">CRIAR LEILÃO</button>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Renderizar cards
+    grid.innerHTML = auctions.map(auction => createAuctionCard(auction)).join('');
+    
+    // Mostrar contador de resultados
+    console.log(`Mostrar ${auctions.length} leilão(ões)`);
+}

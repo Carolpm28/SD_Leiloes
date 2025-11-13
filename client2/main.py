@@ -18,7 +18,7 @@ app = Flask(__name__)
 CORS(app)  # Permite requests da frontend
 
 # Componentes
-db = Database("auction_client.db")
+db = Database("auction_client2.db")
 network = P2PNetwork(port=0)
 
 # Estado global
@@ -62,15 +62,18 @@ network.register_callbacks(
 
 @app.route('/')
 def index():
-    #Serve a página principal 
-    # Frontend está na pasta raiz do projeto
-    return send_from_directory('..', 'index.html')
+    """Serve a página principal (index.html)"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    ui_dir = os.path.join(current_dir, 'ui')
+    return send_from_directory(ui_dir, 'index.html')
 
 
 @app.route('/<path:filename>')
 def serve_static(filename):
-    #Serve CSS, JS e outros ficheiros estáticos
-    return send_from_directory('..', filename)
+    """Serve CSS, JS e outros ficheiros estáticos"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    ui_dir = os.path.join(current_dir, 'ui')
+    return send_from_directory(ui_dir, filename)
 
 
 # --- LEILÕES ---
@@ -98,31 +101,42 @@ def get_my_auctions():
 
 @app.route('/api/auctions', methods=['POST'])
 def create_auction():
-    #Cria novo leilão e faz broadcast
+    """Cria novo leilão e faz broadcast"""
     data = request.json
     
     # Validar dados
     if not data.get('item') or not data.get('closing_date'):
         return jsonify({"error": "Missing required fields"}), 400
     
-    # Criar leilão
-    auction = Auction(
-        item=data['item'],
-        closing_date=data['closing_date'],
-        min_bid=data.get('min_bid')
-    )
-    
-    # TODO: Assinar com crypto
-    
-    # Guardar localmente (is_mine=True)
-    db.save_auction(auction, is_mine=True)
-    
-    # Broadcast para a rede P2P
-    network.broadcast_auction(auction)
-    
-    print(f"Created auction: {auction.item}")
-    
-    return jsonify(auction.to_dict()), 201
+    try:
+        # Criar leilão
+        auction = Auction(
+            item=data['item'],
+            closing_date=data['closing_date'],
+            min_bid=data.get('min_bid'),
+            categoria=data.get('categoria')  # ← ADICIONA ISTO
+        )
+        
+        # TODO: Assinar com crypto
+        
+        # Guardar localmente (is_mine=True)
+        db.save_auction(auction, is_mine=True)
+        
+        # Broadcast para a rede P2P
+        try:
+            network.broadcast_auction(auction)
+        except Exception as e:
+            print(f"Erro no broadcast (ignorando): {e}")
+        
+        print(f"Created auction: {auction.item}")
+        
+        return jsonify(auction.to_dict()), 201
+        
+    except Exception as e:
+        print(f"Erro ao criar leilão: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/auctions/<auction_id>', methods=['GET'])
@@ -239,30 +253,46 @@ def get_info():
 # ==================== STARTUP ====================
 
 def start_client():
-    #Inicia todos os componentes
+    """Inicia todos os componentes"""
     print("AUCTION CLIENT")
     
-    # 1. Iniciar P2P Network
-    network.start()
-    print(f"P2P Network started on port {network.port}")
-    
-    # 2. TODO: Registar no servidor central para descobrir peers
-    # discovery.register(network.port)
+    # NÃO iniciar P2P aqui!
+    # network.start()
     
     print(f"\nAPI Server: http://localhost:5002")
-    print(f"P2P Port: {network.port}")
-    print(f"\n Para adicionar peers, usa: POST /api/peers")
+    print(f"P2P Port: {network.port} (will start after Flask)")
+    print(f"\nPara adicionar peers, usa: POST /api/peers")
     print("="*50 + "\n")
     
     # 3. Iniciar API REST (Flask)
-    app.run(host='0.0.0.0', port=5002, debug=False)
+    app.run(host='0.0.0.0', port=5002, debug=False, use_reloader=False)
 
+
+# ==================== P2P DELAYED START ====================
+
+import atexit
+import threading
+
+def init_p2p():
+    """Inicia P2P após Flask estar pronto"""
+    import time
+    time.sleep(0.5)  # Espera Flask iniciar
+    network.start()
+    print(f"\nP2P Network started on port {network.port}\n")
+
+# Cleanup ao sair
+atexit.register(lambda: network.stop())
+atexit.register(lambda: db.close())
+
+
+# ==================== MAIN ====================
 
 if __name__ == '__main__':
+    # Registra P2P para iniciar depois
+    threading.Timer(1.0, init_p2p).start()
+    
     try:
         start_client()
     except KeyboardInterrupt:
         print("\n\nShutting down...")
-        network.stop()
-        db.close()
         print("Goodbye!")

@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Leilões P2P</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <h1>Leilões<span>Online</span></h1>
+                <p class="logo-subtitle">Leilões Seguros</p>
+            </div>
+            <nav class="nav">
+                <a href="#" class="nav-link active" data-page="leiloes">LEILÕES ATIVOS</a>
+                <a href="#" class="nav-link" data-page="criar">CRIAR LEILÃO</a>
+                <a href="#" class="nav-link" data-page="meus-leiloes">OS MEUS LEILÕES</a>
+                <a href="#" class="nav-link" data-page="minhas-licitacoes">AS MINHAS LICITAÇÕES</a>
+            </nav>
+            <div class="user-actions">
+                <button class="btn-secondary" id="btnLogin">Entrar</button>
+                <button class="btn-primary" id="btnRegister">Registar</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <!-- Leilões Ativos Page -->
+            <section id="page-leiloes" class="page-section active">
+                <div class="page-header">
+                    <h2>LEILÕES ATIVOS</h2>
+                </div>
+
+                <div class="content-wrapper">
+                    <aside class="filters-sidebar">
+                        <div class="filter-card">
+                            <h3 class="filter-title">FILTRAR RESULTADOS</h3>
+                            
+                            <div class="filter-group">
+                                <input type="text" class="filter-input" placeholder="Pesquisar item...">
+                            </div>
+
+                            <div class="filter-group">
+                                <select class="filter-select">
+                                    <option value="">Categoria</option>
+                                    <option value="eletronicos">Eletrónicos</option>
+                                    <option value="imoveis">Imóveis</option>
+                                    <option value="veiculos">Veículos</option>
+                                    <option value="arte">Arte e Colecionáveis</option>
+                                    <option value="outros">Outros</option>
+                                </select>
+                            </div>
+
+                            <div class="filter-group">
+                                <select class="filter-select">
+                                    <option value="">Preço Mínimo</option>
+                                    <option value="0-100">0€ - 100€</option>
+                                    <option value="100-500">100€ - 500€</option>
+                                    <option value="500-1000">500€ - 1.000€</option>
+                                    <option value="1000+">1.000€+</option>
+                                </select>
+                            </div>
+
+                            <div class="filter-group">
+                                <select class="filter-select">
+                                    <option value="">Estado</option>
+                                    <option value="aberto">Aberto</option>
+                                    <option value="encerrado">Encerrado</option>
+                                    <option value="aguardando">Aguardando Pagamento</option>
+                                </select>
+                            </div>
+
+                            <div class="filter-group">
+                                <select class="filter-select">
+                                    <option value="">Ordenar Por</option>
+                                    <option value="recentes">Mais Recentes</option>
+                                    <option value="termina-breve">Termina Breve</option>
+                                    <option value="preco-baixo">Preço: Baixo para Alto</option>
+                                    <option value="preco-alto">Preço: Alto para Baixo</option>
+                                </select>
+                            </div>
+
+                            <button class="btn-filter">FILTRAR</button>
+                        </div>
+                    </aside>
+
+                    <section class="auctions-grid">
+                        <!-- Os leilões ativos serão carregados dinamicamente aqui -->
+                        <div class="empty-state">
+                            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <h3>Nenhum leilão ativo no momento</h3>
+                            <p>Seja o primeiro a criar um leilão!</p>
+                            <button class="btn-primary" onclick="navigateTo('criar')">CRIAR LEILÃO</button>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <!-- Criar Leilão Page -->
+            <section id="page-criar" class="page-section">
+                <div class="page-header">
+                    <h2>CRIAR NOVO LEILÃO</h2>
+                </div>
+
+                <div class="form-container">
+                    <form id="formCriarLeilao" class="auction-form">
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="itemDescricao">Descrição do Item *</label>
+                                <input type="text" id="itemDescricao" required placeholder="Ex: Smartphone Premium 2024">
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="itemDetalhes">Detalhes do Item *</label>
+                                <textarea id="itemDetalhes" rows="4" required placeholder="Descreva o item em detalhe..."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="categoria">Categoria *</label>
+                                <select id="categoria" required>
+                                    <option value="">Selecione uma categoria</option>
+                                    <option value="eletronicos">Eletrónicos</option>
+                                    <option value="imoveis">Imóveis</option>
+                                    <option value="veiculos">Veículos</option>
+                                    <option value="arte">Arte e Colecionáveis</option>
+                                    <option value="outros">Outros</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="precoMinimo">Preço Mínimo (€)</label>
+                                <input type="number" id="precoMinimo" min="0" step="0.01" placeholder="Opcional">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="dataEncerramento">Data de Encerramento *</label>
+                                <input type="date" id="dataEncerramento" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="horaEncerramento">Hora de Encerramento *</label>
+                                <input type="time" id="horaEncerramento" required>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="imagemItem">Imagem do Item</label>
+                                <input type="file" id="imagemItem" accept="image/*">
+                                <small>Formatos aceites: JPG, PNG, GIF (máx. 5MB)</small>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary">CRIAR LEILÃO</button>
+                            <button type="reset" class="btn-secondary">LIMPAR FORMULÁRIO</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Meus Leilões Page -->
+            <section id="page-meus-leiloes" class="page-section">
+                <div class="page-header">
+                    <h2>OS MEUS LEILÕES</h2>
+                </div>
+
+                <div class="my-auctions-container">
+                    <div class="auctions-grid">
+                        <!-- Os leilões do utilizador serão carregados dinamicamente aqui -->
+                        <div class="empty-state">
+                            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <h3>Ainda não criou nenhum leilão</h3>
+                            <p>Crie o seu primeiro leilão e comece a vender!</p>
+                            <button class="btn-primary" onclick="navigateTo('criar')">CRIAR LEILÃO</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Minhas Licitações Page -->
+            <section id="page-minhas-licitacoes" class="page-section">
+                <div class="page-header">
+                    <h2>AS MINHAS LICITAÇÕES</h2>
+                </div>
+
+                <div class="my-bids-container">
+                    <div class="auctions-grid">
+                        <!-- As licitações do utilizador serão carregadas dinamicamente aqui -->
+                        <div class="empty-state">
+                            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <h3>Ainda não fez nenhuma licitação</h3>
+                            <p>Explore os leilões ativos e faça a sua primeira licitação!</p>
+                            <button class="btn-primary" onclick="navigateTo('leiloes')">VER LEILÕES</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Login Page -->
+            <section id="page-login" class="page-section">
+                <div class="page-header">
+                    <h2>ENTRAR</h2>
+                </div>
+
+                <div class="auth-container">
+                    <div class="auth-card">
+                        <div class="auth-header">
+                            <svg class="auth-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                                <polyline points="10 17 15 12 10 7"/>
+                                <line x1="15" y1="12" x2="3" y2="12"/>
+                            </svg>
+                            <h3>Bem-vindo de volta!</h3>
+                            <p>Entre com as suas credenciais para aceder ao sistema</p>
+                        </div>
+
+                        <form id="formLogin" class="auth-form">
+                            <div class="form-group">
+                                <label for="loginEmail">Email ou Nome de Utilizador *</label>
+                                <input type="text" id="loginEmail" required placeholder="exemplo@email.com">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="loginPassword">Palavra-passe *</label>
+                                <input type="password" id="loginPassword" required placeholder="••••••••">
+                            </div>
+
+                            <div class="form-options">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="rememberMe">
+                                    <span>Lembrar-me</span>
+                                </label>
+                                <a href="#" class="link-text">Esqueceu a palavra-passe?</a>
+                            </div>
+
+                            <button type="submit" class="btn-primary btn-full">ENTRAR</button>
+                        </form>
+
+                        <div class="auth-footer">
+                            <p>Ainda não tem conta? <a href="#" class="link-primary" onclick="navigateTo('register'); return false;">Registar agora</a></p>
+                        </div>
+
+                        <div class="auth-divider">
+                            <span>OU</span>
+                        </div>
+
+                        <div class="security-info">
+                            <svg class="security-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            </svg>
+                            <div class="security-text">
+                                <strong>Segurança Garantida</strong>
+                                <p>Todas as comunicações são protegidas com criptografia de ponta a ponta</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Register Page -->
+            <section id="page-register" class="page-section">
+                <div class="page-header">
+                    <h2>REGISTAR</h2>
+                </div>
+
+                <div class="auth-container">
+                    <div class="auth-card">
+                        <div class="auth-header">
+                            <svg class="auth-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                <circle cx="8.5" cy="7" r="4"/>
+                                <line x1="20" y1="8" x2="20" y2="14"/>
+                                <line x1="23" y1="11" x2="17" y2="11"/>
+                            </svg>
+                            <h3>Criar Nova Conta</h3>
+                            <p>Junte-se ao sistema de leilões P2P seguro e privado</p>
+                        </div>
+
+                        <form id="formRegister" class="auth-form">
+                            <div class="form-group">
+                                <label for="registerName">Nome Completo *</label>
+                                <input type="text" id="registerName" required placeholder="João Silva">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="registerEmail">Email *</label>
+                                <input type="email" id="registerEmail" required placeholder="exemplo@email.com">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="registerUsername">Nome de Utilizador *</label>
+                                <input type="text" id="registerUsername" required placeholder="joaosilva">
+                                <small>Este será o seu identificador único no sistema</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="registerPassword">Palavra-passe *</label>
+                                <input type="password" id="registerPassword" required placeholder="••••••••">
+                                <small>Mínimo 8 caracteres, incluindo letras e números</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="registerPasswordConfirm">Confirmar Palavra-passe *</label>
+                                <input type="password" id="registerPasswordConfirm" required placeholder="••••••••">
+                            </div>
+
+                            <div class="form-options">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="acceptTerms" required>
+                                    <span>Aceito os <a href="#" class="link-text">termos e condições</a></span>
+                                </label>
+                            </div>
+
+                            <button type="submit" class="btn-primary btn-full">CRIAR CONTA</button>
+                        </form>
+
+                        <div class="auth-footer">
+                            <p>Já tem uma conta? <a href="#" class="link-primary" onclick="navigateTo('login'); return false;">Entrar</a></p>
+                        </div>
+
+                        <div class="auth-divider">
+                            <span>PROCESSO DE REGISTO</span>
+                        </div>
+
+                        <div class="registration-steps">
+                            <div class="step-item">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <strong>Criar Conta</strong>
+                                    <p>Preencha os seus dados pessoais</p>
+                                </div>
+                            </div>
+                            <div class="step-item">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <strong>Geração de Chaves</strong>
+                                    <p>O sistema gera automaticamente as suas chaves criptográficas</p>
+                                </div>
+                            </div>
+                            <div class="step-item">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <strong>Verificação</strong>
+                                    <p>Confirme o seu email para ativar a conta</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="security-info">
+                            <svg class="security-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            </svg>
+                            <div class="security-text">
+                                <strong>Privacidade Garantida</strong>
+                                <p>As suas chaves privadas nunca saem do seu dispositivo. Total anonimato nas transações.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Sobre o Sistema</h4>
+                    <p>Sistema de leilões peer-to-peer com preservação de privacidade usando criptografia aplicada.</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Segurança</h4>
+                    <ul>
+                        <li>Anonimato garantido</li>
+                        <li>Autenticidade verificada</li>
+                        <li>Integridade protegida</li>
+                        <li>Não-repúdio assegurado</li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Contacto</h4>
+                    <p>Para mais informações sobre o sistema</p>
+                    <p>Projeto de Criptografia Aplicada</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 Sistema de Leilões P2P. Desenvolvido com segurança e privacidade.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

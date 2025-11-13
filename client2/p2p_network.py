@@ -21,14 +21,11 @@ class P2PNetwork:
         
     #Inicia o servidor P2P
     def start(self):
-        #Criar o socket TCP
+        """Inicia o servidor P2P (escuta conexões)"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #Permitir reusar portas
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        #Associar o socket ao IP:porta
         self.socket.bind((self.host, self.port))
         
-        # Descobre a porta atribuída automaticamente
         self.port = self.socket.getsockname()[1]
         
         self.socket.listen(5)
@@ -36,37 +33,50 @@ class P2PNetwork:
         
         print(f"P2P Node started on {self.host}:{self.port}")
         
-        # Thread para aceitar conexões
-        accept_thread = threading.Thread(target=self._accept_connections, daemon=True)
+        # MUDA DE daemon=True para daemon=False
+        accept_thread = threading.Thread(target=self._accept_connections, daemon=False)
         accept_thread.start()
 
     #Para o servidor P2P
     def stop(self):
+        """Para o servidor P2P"""
         self.running = False
+        time.sleep(1.5)  # Dá tempo para threads terminarem
+        
         if self.socket:
-            self.socket.close()
+            try:
+                self.socket.close()
+            except:
+                pass
+        
         print("P2P Node stopped")
     
     def _accept_connections(self):
-        #Aceita conexões de outros peers (thread separada)
-        #Utilizamos threads para receber varios clients ao mesmo tempo
-        while self.running: #loop infinito enquanto esta ativo
+        """Aceita conexões de outros peers (thread separada)"""
+        while self.running:
             try:
-                client_socket, address = self.socket.accept()
+                # Define timeout para não bloquear forever
+                self.socket.settimeout(1.0)  # ← ADICIONA ISTO
+                
+                try:
+                    client_socket, address = self.socket.accept()
+                except socket.timeout:
+                    continue  # Volta ao loop, verifica self.running
+                
                 print(f"New connection from {address}")
                 
-                # Thread para lidar com o cliente
+                # Thread para lidar com este cliente
                 handler_thread = threading.Thread(
                     target=self._handle_peer,
                     args=(client_socket, address),
-                    daemon=True
+                    daemon=False  # ← MUDA PARA False
                 )
                 handler_thread.start()
                 
             except Exception as e:
                 if self.running:
-                    print(f" Error accepting connection: {e}")
-    
+                    print(f"Error accepting connection: {e}")
+        
     def _handle_peer(self, client_socket, address):
         #Processa mensagens recebidas de um peer
         try:
@@ -137,9 +147,17 @@ class P2PNetwork:
         print(f"Broadcasted bid: {bid.value}€")
     
     def _broadcast(self, message: P2PMessage):
-        #Envia mensagem para todos os peers conhecidos
-        message_json = json.dumps(message.to_dict()) + "\n" # Adiciona \n para indicar fim da mensagem
-        message_bytes = message_json.encode('utf-8')
+        """Envia mensagem para todos os peers conhecidos"""
+        if not self.peers:
+            print("No peers to broadcast to")
+            return
+        
+        try:
+            message_json = json.dumps(message.to_dict()) + "\n"
+            message_bytes = message_json.encode('utf-8')
+        except Exception as e:
+            print(f"Error encoding message: {e}")
+            return
         
         failed_peers = []
         
@@ -154,13 +172,20 @@ class P2PNetwork:
                 peer_socket.sendall(message_bytes)
                 peer_socket.close()
                 
+                print(f"Sent to {peer_host}:{peer_port}")
+                
             except Exception as e:
                 print(f"Failed to send to {peer_host}:{peer_port}: {e}")
                 failed_peers.append((peer_host, peer_port))
         
         # Remove peers que falharam
         for peer in failed_peers:
-            self.peers.remove(peer)
+            if peer in self.peers:
+                self.peers.remove(peer)
+            
+            # Remove peers que falharam
+            for peer in failed_peers:
+                self.peers.remove(peer)
     
     # ==================== GESTÃO DE PEERS ====================
     
