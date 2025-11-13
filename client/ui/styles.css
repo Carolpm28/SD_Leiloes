@@ -949,3 +949,279 @@ body {
 .auction-card:nth-child(2) { animation-delay: 0.2s; }
 .auction-card:nth-child(3) { animation-delay: 0.3s; }
 .auction-card:nth-child(4) { animation-delay: 0.4s; }
+
+/* ==================== PÁGINA DE DETALHES ==================== */
+
+.detalhes-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.detalhes-info {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.detalhes-card {
+    background: white;
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.detalhes-countdown {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #848484;
+}
+
+.detalhes-countdown.urgente {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.detalhes-countdown.encerrado {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.detalhes-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.detalhes-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.detalhes-label {
+    font-size: 12px;
+    color: #6c757d;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.detalhes-value {
+    font-size: 18px;
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.detalhes-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #28a745;
+    color: white;
+}
+
+.detalhes-badge.encerrado {
+    background: #dc3545;
+}
+
+.detalhes-bid-atual {
+    background: linear-gradient( #ffffff );
+    color: rgb(0, 0, 0);
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.bid-atual-header {
+    font-size: 14px;
+    opacity: 0.9;
+    margin-bottom: 10px;
+}
+
+.bid-atual-valor {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 5px;
+}
+
+.bid-atual-info {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* Formulário de Bid */
+.bid-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 5px;
+    color: #6c757d;
+    font-size: 13px;
+}
+
+.btn-full {
+    width: 100%;
+}
+
+/* Timeline de Bids */
+.bids-timeline {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.bids-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.bids-empty svg {
+    margin-bottom: 20px;
+    opacity: 0.3;
+}
+
+.bids-empty p {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.bid-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 15px;
+    border-left: 3px solid #667eea;
+    margin-bottom: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.bid-item:hover {
+    background: #e9ecef;
+    transform: translateX(5px);
+}
+
+.bid-item.my-bid {
+    border-left-color: #28a745;
+    background: #d4edda;
+}
+
+.bid-item.winning {
+    border-left-color: #ffc107;
+    background: #fff3cd;
+}
+
+.bid-icon {
+    width: 40px;
+    height: 40px;
+    background: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.bid-content {
+    flex: 1;
+}
+
+.bid-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+.bid-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.bid-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.bid-badge.meu {
+    background: #28a745;
+    color: white;
+}
+
+.bid-badge.vencedor {
+    background: #ffc107;
+    color: #000;
+}
+
+/* Botão Voltar */
+.btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: white;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    color: #6c757d;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 20px;
+}
+
+.btn-back:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+    color: #667eea;
+}
+
+/* Responsivo */
+@media (max-width: 968px) {
+    .detalhes-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .detalhes-grid {
+        grid-template-columns: 1fr;
+    }
+}
+/* Título da página de detalhes */
+#page-detalhes .page-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+#page-detalhes .page-header h2 {
+    margin: 20px 0;
+    font-size: 32px;
+}
+
+#page-detalhes .btn-back {
+    position: absolute;
+    left: 0;
+}

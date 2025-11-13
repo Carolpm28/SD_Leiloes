@@ -150,34 +150,34 @@ function createAuctionCard(auction) {
     const minBidText = auction.min_bid ? `€${auction.min_bid.toFixed(2)}` : 'Sem mínimo';
     
     return `
-        <div class="auction-card" data-auction-id="${auction.auction_id}">
-            <div class="auction-image">
-                <img src="https://via.placeholder.com/400x300?text=${encodeURIComponent(auction.item)}" 
-                     alt="${auction.item}">
-                <div class="auction-badge">Ativo</div>
-            </div>
-            <div class="auction-content">
-                <h3 class="auction-title">${auction.item}</h3>
-                <div class="auction-info">
-                    <div class="info-item">
-                        <span class="info-label">Preço Mínimo:</span>
-                        <span class="info-value">${minBidText}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Termina em:</span>
-                        <span class="info-value">${daysLeft}d ${hoursLeft}h</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Data de Encerramento:</span>
-                        <span class="info-value">${closingDate.toLocaleString('pt-PT')}</span>
-                    </div>
-                </div>
-                <button class="btn-primary btn-full" onclick="showBidModal('${auction.auction_id}', '${auction.item}', ${auction.min_bid || 0})">
-                    VER DETALHES E LICITAR
-                </button>
-            </div>
+    <div class="auction-card" data-auction-id="${auction.auction_id}">
+        <div class="auction-image">
+            <img src="https://via.placeholder.com/400x300?text=${encodeURIComponent(auction.item)}" 
+                 alt="${auction.item}">
+            <div class="auction-badge">Ativo</div>
         </div>
-    `;
+        <div class="auction-content">
+            <h3 class="auction-title">${auction.item}</h3>
+            <div class="auction-info">
+                <div class="info-item">
+                    <span class="info-label">Preço Mínimo:</span>
+                    <span class="info-value">${minBidText}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Termina em:</span>
+                    <span class="info-value">${daysLeft}d ${hoursLeft}h</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Data de Encerramento:</span>
+                    <span class="info-value">${closingDate.toLocaleString('pt-PT')}</span>
+                </div>
+            </div>
+            <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                VER DETALHES E LICITAR
+            </button>
+        </div>
+    </div>
+`;
 }
 
 // ==================== MEUS LEILÕES ====================
@@ -763,3 +763,253 @@ function renderFilteredAuctions(auctions) {
     // Mostrar contador de resultados
     console.log(`Mostrar ${auctions.length} leilão(ões)`);
 }
+
+// ==================== PÁGINA DE DETALHES DO LEILÃO ====================
+
+let currentAuctionId = null;
+let detalhesInterval = null;
+
+async function viewAuctionDetails(auctionId) {
+    currentAuctionId = auctionId;
+    navigateTo('detalhes');
+    
+    await loadAuctionDetails(auctionId);
+    await loadAuctionBids(auctionId);
+    
+    // Atualizar timer e bids a cada 1 segundo
+    if (detalhesInterval) clearInterval(detalhesInterval);
+    detalhesInterval = setInterval(() => {
+        updateCountdownTimer();
+        loadAuctionBids(auctionId); // Atualiza bids em tempo real
+    }, 1000);
+}
+
+async function loadAuctionDetails(auctionId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions/${auctionId}`);
+        const auction = await response.json();
+        
+        // Título
+        document.getElementById('detalhes-titulo').textContent = auction.item;
+        
+        // Detalhes
+        document.getElementById('detalhes-preco-minimo').textContent = 
+            auction.min_bid ? `€${auction.min_bid.toFixed(2)}` : 'Sem mínimo';
+        
+        document.getElementById('detalhes-categoria').textContent = 
+            getCategoriaLabel(auction.categoria);
+        
+        const closingDate = new Date(auction.closing_date);
+        document.getElementById('detalhes-data').textContent = 
+            closingDate.toLocaleString('pt-PT');
+        
+        // Estado
+        const now = new Date();
+        const estado = document.getElementById('detalhes-estado');
+        if (closingDate > now) {
+            estado.textContent = 'Ativo';
+            estado.className = 'detalhes-badge';
+        } else {
+            estado.textContent = 'Encerrado';
+            estado.className = 'detalhes-badge encerrado';
+            document.getElementById('detalhes-form-container').style.display = 'none';
+        }
+        
+        // Guardar para countdown
+        window.currentAuction = auction;
+        updateCountdownTimer();
+        
+        // Hint do formulário
+        const hint = document.getElementById('bid-min-hint');
+        hint.textContent = auction.min_bid 
+            ? `Valor mínimo: €${auction.min_bid.toFixed(2)}`
+            : 'Digite o valor da sua proposta';
+        
+    } catch (error) {
+        console.error('Erro ao carregar detalhes:', error);
+        showNotification('Erro ao carregar leilão', 'error');
+    }
+}
+
+async function loadAuctionBids(auctionId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auctions/${auctionId}/bids`);
+        const bids = await response.json();
+        
+        const timeline = document.getElementById('bids-timeline');
+        
+        if (bids.length === 0) {
+            timeline.innerHTML = `
+                <div class="bids-empty">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <p>Nenhuma licitação ainda</p>
+                    <small>Seja o primeiro a fazer uma proposta!</small>
+                </div>
+            `;
+            
+            // Esconder bid atual
+            document.getElementById('detalhes-bid-container').style.display = 'none';
+            return;
+        }
+        
+        // Ordenar do mais recente para o mais antigo
+        bids.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        // Mostrar bid mais alto
+        const highestBid = bids[0];
+        document.getElementById('detalhes-bid-container').style.display = 'block';
+        document.getElementById('detalhes-bid-valor').textContent = `€${highestBid.value.toFixed(2)}`;
+        document.getElementById('detalhes-bid-info').textContent = 
+            `${bids.length} licitação(ões) • Última há ${getTimeAgo(highestBid.timestamp)}`;
+        
+        // Renderizar timeline
+        timeline.innerHTML = bids.map((bid, index) => {
+            const isWinning = index === 0;
+            const isMine = bid.is_mine === 1;
+            
+            let classes = 'bid-item';
+            if (isMine) classes += ' my-bid';
+            if (isWinning) classes += ' winning';
+            
+            let badges = '';
+            if (isMine) badges += '<span class="bid-badge meu">MEU BID</span>';
+            if (isWinning) badges += '<span class="bid-badge vencedor"> A Ganhar</span>';
+            
+            return `
+                <div class="${classes}">
+                    <div class="bid-icon">${isWinning ? '' : ''}</div>
+                    <div class="bid-content">
+                        <div class="bid-value">€${bid.value.toFixed(2)}</div>
+                        <div class="bid-info">
+                            <span>${getTimeAgo(bid.timestamp)}</span>
+                            ${badges}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+    } catch (error) {
+        console.error('Erro ao carregar bids:', error);
+    }
+}
+
+function updateCountdownTimer() {
+    if (!window.currentAuction) return;
+    
+    const closingDate = new Date(window.currentAuction.closing_date);
+    const now = new Date();
+    const diff = closingDate - now;
+    
+    const timerElement = document.getElementById('detalhes-timer');
+    const countdownElement = document.querySelector('.detalhes-countdown');
+    
+    if (diff <= 0) {
+        timerElement.textContent = 'Leilão Encerrado';
+        countdownElement.className = 'detalhes-countdown encerrado';
+        if (detalhesInterval) {
+            clearInterval(detalhesInterval);
+        }
+        return;
+    }
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    let timeString = '';
+    if (days > 0) timeString += `${days}d `;
+    if (hours > 0 || days > 0) timeString += `${hours}h `;
+    timeString += `${minutes}m ${seconds}s`;
+    
+    timerElement.textContent = `Termina em: ${timeString}`;
+    
+    // Marcar como urgente se falta menos de 1 hora
+    if (diff < 3600000) {
+        countdownElement.className = 'detalhes-countdown urgente';
+    } else {
+        countdownElement.className = 'detalhes-countdown';
+    }
+}
+
+function getTimeAgo(timestamp) {
+    const now = new Date();
+    const past = new Date(timestamp);
+    const diff = now - past;
+    
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `há ${days} dia${days > 1 ? 's' : ''}`;
+    if (hours > 0) return `há ${hours} hora${hours > 1 ? 's' : ''}`;
+    if (minutes > 0) return `há ${minutes} minuto${minutes > 1 ? 's' : ''}`;
+    return `há ${seconds} segundo${seconds !== 1 ? 's' : ''}`;
+}
+
+function getCategoriaLabel(categoria) {
+    const labels = {
+        'eletronicos': 'Eletrónicos',
+        'imoveis': 'Imóveis',
+        'veiculos': 'Veículos',
+        'arte': 'Arte e Colecionáveis',
+        'outros': 'Outros'
+    };
+    return labels[categoria] || categoria || 'Sem categoria';
+}
+
+// Handler do formulário de bid
+document.getElementById('formFazerBid')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const value = parseFloat(document.getElementById('bidValue').value);
+    
+    if (!currentAuctionId) {
+        showNotification('Erro: Leilão não identificado', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/bids`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                auction_id: currentAuctionId,
+                value: value
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Erro ao criar bid');
+        }
+        
+        showNotification('Licitação enviada com sucesso!', 'success');
+        document.getElementById('bidValue').value = '';
+        
+        // Recarregar bids
+        await loadAuctionBids(currentAuctionId);
+        
+    } catch (error) {
+        console.error('Erro ao fazer bid:', error);
+        showNotification(error.message, 'error');
+    }
+});
+
+// Limpar interval quando sair da página
+const originalNavigateTo = navigateTo;
+navigateTo = function(page) {
+    if (detalhesInterval && page !== 'detalhes') {
+        clearInterval(detalhesInterval);
+        detalhesInterval = null;
+    }
+    originalNavigateTo(page);
+};

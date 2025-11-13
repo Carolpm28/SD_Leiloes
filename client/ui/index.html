@@ -376,7 +376,101 @@
                 </div>
             </section>
         </div>
+        <!-- ==================== PÁGINA: DETALHES DO LEILÃO ==================== -->
+        <section id="page-detalhes" class="page-section">
+            <div class="page-header">
+                <button class="btn-back" onclick="navigateTo('leiloes')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                    Voltar
+                </button>
+                <h2 id="detalhes-titulo">Carregando...</h2>
+            </div>
+
+            <div class="detalhes-container">
+                <!-- COLUNA ESQUERDA: Informações -->
+                <div class="detalhes-info">
+                    <div class="detalhes-card">
+                        <div class="detalhes-countdown">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                            <span id="detalhes-timer">Calculando...</span>
+                        </div>
+
+                        <div class="detalhes-grid">
+                            <div class="detalhes-item">
+                                <span class="detalhes-label">Preço Mínimo</span>
+                                <span class="detalhes-value" id="detalhes-preco-minimo">€0.00</span>
+                            </div>
+                            <div class="detalhes-item">
+                                <span class="detalhes-label">Categoria</span>
+                                <span class="detalhes-value" id="detalhes-categoria">-</span>
+                            </div>
+                            <div class="detalhes-item">
+                                <span class="detalhes-label">Data de Encerramento</span>
+                                <span class="detalhes-value" id="detalhes-data">-</span>
+                            </div>
+                            <div class="detalhes-item">
+                                <span class="detalhes-label">Estado</span>
+                                <span class="detalhes-badge" id="detalhes-estado">Ativo</span>
+                            </div>
+                        </div>
+
+                        <div class="detalhes-bid-atual" id="detalhes-bid-container" style="display: none;">
+                            <div class="bid-atual-header">
+                                <span>Licitação Atual</span>
+                            </div>
+                            <div class="bid-atual-valor" id="detalhes-bid-valor">€0.00</div>
+                            <div class="bid-atual-info" id="detalhes-bid-info">Sem licitações ainda</div>
+                        </div>
+                    </div>
+
+                    <!-- FORMULÁRIO PARA FAZER BID -->
+                    <div class="detalhes-card" id="detalhes-form-container">
+                        <h3>Fazer Licitação</h3>
+                        <form id="formFazerBid" class="bid-form">
+                            <div class="form-group">
+                                <label for="bidValue">Valor da Proposta (€)</label>
+                                <input 
+                                    type="number" 
+                                    id="bidValue" 
+                                    step="0.01" 
+                                    min="0" 
+                                    required
+                                    placeholder="Digite o valor">
+                                <small id="bid-min-hint" class="form-hint"></small>
+                            </div>
+                            <button type="submit" class="btn-primary btn-full">
+                                FAZER LICITAÇÃO
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- COLUNA DIREITA: Histórico de Bids -->
+                <div class="detalhes-bids">
+                    <div class="detalhes-card">
+                        <h3>Histórico de Licitações</h3>
+                        <div id="bids-timeline" class="bids-timeline">
+                            <div class="bids-empty">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <line x1="12" y1="8" x2="12" y2="12"/>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                </svg>
+                                <p>Nenhuma licitação ainda</p>
+                                <small>Seja o primeiro a fazer uma proposta!</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
+    
 
     <!-- Footer -->
     <footer class="footer">
