@@ -9,6 +9,7 @@ import time
 from database import Database
 from p2p_network import P2PNetwork
 from models import Auction, Bid
+from crypto_manager import CryptoManager
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -18,7 +19,7 @@ CORS(app)  # Permite requests da frontend
 # Componentes
 db = Database("auction_client.db")
 network = P2PNetwork(port=0, database=db)
-
+crypto = CryptoManager(server_url="http://localhost:5000")
 # Estado global
 my_user_id = None  # ID do utilizador (definir depois)
 
@@ -135,37 +136,48 @@ def get_my_auctions():
 
 @app.route('/api/auctions', methods=['POST'])
 def create_auction():
-    #Cria novo leilão e faz broadcast
+    #Cria novo leilão ANÓNIMO com blind signature
     data = request.json
-
-    print(f"DADOS RECEBIDOS: {data}") 
-    print(f"Categoria recebida: {data.get('categoria')}") 
+    
+    # Validar autenticação
+    if not crypto.user_id:
+        return jsonify({"error": "Not authenticated"}), 401
     
     # Validar dados
     if not data.get('item') or not data.get('closing_date'):
         return jsonify({"error": "Missing required fields"}), 400
     
     try:
-        # Criar leilão
+        # 1. PEDIR TOKEN ANÓNIMO
+        print("Requesting anonymous token...")
+        token, error = crypto.request_anonymous_token()
+        
+        if error:
+            return jsonify({"error": f"Failed to get anonymous token: {error}"}), 500
+        
+        print(f"Anonymous token obtained: {token[:40]}...")
+        
+        # 2. Criar leilão
         auction = Auction(
             item=data['item'],
             closing_date=data['closing_date'],
             min_bid=data.get('min_bid'),
-            categoria=data.get('categoria') 
+            categoria=data.get('categoria')
         )
         
-        # TODO: Assinar com crypto
+        # 3. ADICIONAR TOKEN ANÓNIMO (em vez de assinatura normal)
+        auction.anonymous_token = token
+        auction.seller_anonymous_id = crypto.get_anonymous_id()
         
-        # Guardar localmente (is_mine=True)
+        # 4. Guardar localmente (is_mine=True)
         db.save_auction(auction, is_mine=True)
         
-        # Broadcast para a rede P2P
+        # 5. Broadcast para a rede P2P
         try:
             network.broadcast_auction(auction)
+            print(f"Auction broadcasted anonymously: {auction.item}")
         except Exception as e:
             print(f"Erro no broadcast (ignorando): {e}")
-        
-        print(f"Created auction: {auction.item}")
         
         return jsonify(auction.to_dict()), 201
         
@@ -216,8 +228,12 @@ def get_winner(auction_id):
 
 @app.route('/api/bids', methods=['POST'])
 def create_bid():
-    #Cria novo bid e faz broadcast
+    #Cria novo bid ANÓNIMO com blind signature
     data = request.json
+    
+    # Validar autenticação
+    if not crypto.user_id:
+        return jsonify({"error": "Not authenticated"}), 401
     
     # Validar dados
     if not data.get('auction_id') or not data.get('value'):
@@ -227,7 +243,7 @@ def create_bid():
     bid_value = float(data['value'])
     
     # Verificar se leilão existe
-    auction = db.get_auction(auction_id)  
+    auction = db.get_auction(auction_id)
     if not auction:
         return jsonify({"error": "Auction not found"}), 404
     
@@ -237,7 +253,7 @@ def create_bid():
         return jsonify({"error": "Auction is closed"}), 400
     
     # Verificar que bid >= min_bid
-    if auction.min_bid and bid_value < auction.min_bid:  
+    if auction.min_bid and bid_value < auction.min_bid:
         return jsonify({"error": f"Bid deve ser >= {auction.min_bid}€"}), 400
 
     # Verificar que bid > bids anteriores
@@ -249,21 +265,41 @@ def create_bid():
     if db.is_my_auction(auction_id):
         return jsonify({"error": "Não pode dar bid no próprio leilão!"}), 400
     
-    # Criar bid
-    bid = Bid(
-        auction_id=auction_id,
-        value=bid_value
-    )
-    
-    # Guardar localmente (is_mine=True)
-    db.save_bid(bid, is_mine=True)
-    
-    # Broadcast para a rede P2P
-    network.broadcast_bid(bid)
-    
-    print(f"Created bid: {bid.value}€ for {auction.item}")
-    
-    return jsonify(bid.to_dict()), 201
+    try:
+        # 1. PEDIR TOKEN ANÓNIMO
+        print("Requesting anonymous token for bid...")
+        token, error = crypto.request_anonymous_token()
+        
+        if error:
+            return jsonify({"error": f"Failed to get anonymous token: {error}"}), 500
+        
+        print(f"Anonymous token obtained: {token[:40]}...")
+        
+        # 2. Criar bid
+        bid = Bid(
+            auction_id=auction_id,
+            value=bid_value
+        )
+        
+        # 3. ADICIONAR TOKEN ANÓNIMO
+        bid.anonymous_token = token
+        bid.bidder_anonymous_id = crypto.get_anonymous_id()
+        
+        # 4. Guardar localmente (is_mine=True)
+        db.save_bid(bid, is_mine=True)
+        
+        # 5. Broadcast para a rede P2P
+        network.broadcast_bid(bid)
+        
+        print(f"Bid broadcasted anonymously: €{bid.value}")
+        
+        return jsonify(bid.to_dict()), 201
+        
+    except Exception as e:
+        print(f"Erro ao fazer bid: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/bids/mine', methods=['GET'])
@@ -329,6 +365,77 @@ def get_info():
         "my_auctions_count": len(db.get_my_auctions())
     })
 
+# ==================== AUTENTICAÇÃO ====================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register_user():
+    #Regista utilizador no servidor central
+    data = request.json
+    
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+    
+    # IP e porta deste cliente
+    ip = "localhost"  # TODO: Obter IP real
+    port = network.port
+    
+    # Registar via crypto_manager
+    success, message = crypto.register(username, password, ip, port)
+    
+    if success:
+        global my_user_id
+        my_user_id = crypto.user_id
+        return jsonify({
+            "message": message,
+            "user_id": crypto.user_id,
+            "username": crypto.username
+        }), 201
+    else:
+        return jsonify({"error": message}), 400
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def login_user():
+    #Faz login no servidor central
+    data = request.json
+    
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+    
+    # Login via crypto_manager
+    success, message = crypto.login(username, password)
+    
+    if success:
+        global my_user_id
+        my_user_id = crypto.user_id
+        return jsonify({
+            "message": message,
+            "user_id": crypto.user_id,
+            "username": crypto.username
+        }), 200
+    else:
+        return jsonify({"error": message}), 401
+
+
+@app.route('/api/auth/status', methods=['GET'])
+def auth_status():
+    #Verifica se utilizador está autenticado
+    if crypto.user_id:
+        return jsonify({
+            "authenticated": True,
+            "user_id": crypto.user_id,
+            "username": crypto.username
+        }), 200
+    else:
+        return jsonify({
+            "authenticated": False
+        }), 200
 
 # ==================== STARTUP ====================
 
@@ -376,3 +483,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\n\nShutting down...")
         print("Goodbye!")
+
+

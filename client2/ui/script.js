@@ -213,9 +213,11 @@ async function loadAuctions() {
                                 <span class="detail-value">${formatDateTime(auction.closing_date)}</span>
                             </div>
                         </div>
-                        <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
-                            VER DETALHES E LICITAR
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                                    VER DETALHES E LICITAR
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -258,9 +260,11 @@ function createAuctionCard(auction) {
                     <span class="info-value">${closingDate.toLocaleString('pt-PT')}</span>
                 </div>
             </div>
-            <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
-                VER DETALHES E LICITAR
-            </button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                        VER DETALHES E LICITAR
+                </button>
+            </div>
         </div>
     </div>
 `;
@@ -324,11 +328,8 @@ function createMyAuctionCard(auction) {
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn-primary" onclick="viewAuctionBids('${auction.auction_id}')">
-                        VER LICITAÇÕES
-                    </button>
-                    <button class="btn-secondary" onclick="viewWinner('${auction.auction_id}')">
-                        VER VENCEDOR
+                    <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                            VER DETALHES E LICITAR
                     </button>
                 </div>
             </div>
@@ -881,9 +882,11 @@ function renderFilteredAuctions(auctions) {
                             <span class="detail-value">${formatDateTime(auction.closing_date)}</span>
                         </div>
                     </div>
+                    <div style="display: flex; gap: 10px;">
                     <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
-                        VER DETALHES E LICITAR
+                            VER DETALHES E LICITAR
                     </button>
+                </div>
                 </div>
             </div>
         `;

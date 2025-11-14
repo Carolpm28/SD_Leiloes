@@ -15,6 +15,7 @@ class Auction:
         self.min_bid = min_bid
         self.categoria = categoria  
         self.signature = None
+        self.anonymous_token = None
         self.seller_anonymous_id = None
         
     def to_dict(self):
@@ -26,6 +27,7 @@ class Auction:
             "min_bid": self.min_bid,
             "categoria": self.categoria,
             "signature": self.signature,
+            "anonymous_token": self.anonymous_token,
             "seller_anonymous_id": self.seller_anonymous_id
         }
     
@@ -40,6 +42,7 @@ class Auction:
         )
         auction.auction_id = data["auction_id"]
         auction.signature = data.get("signature")
+        auction.anonymous_token = data.get("anonymous_token") 
         auction.seller_anonymous_id = data.get("seller_anonymous_id")
         return auction
 
@@ -53,6 +56,7 @@ class Bid:
         self.value = value
         self.timestamp = datetime.utcnow().isoformat()
         self.signature = None
+        self.anonymous_token = None
         self.bidder_cert = None
         self.bidder_anonymous_id = None
         
@@ -63,6 +67,7 @@ class Bid:
             "value": self.value,
             "timestamp": self.timestamp,
             "signature": self.signature,
+            "anonymous_token": self.anonymous_token,  
             "bidder_cert": self.bidder_cert,
             "bidder_anonymous_id": self.bidder_anonymous_id
         }
@@ -76,6 +81,7 @@ class Bid:
         bid.bid_id = data["bid_id"]
         bid.timestamp = data["timestamp"]
         bid.signature = data.get("signature")
+        bid.anonymous_token = data.get("anonymous_token")
         bid.bidder_cert = data.get("bidder_cert")
         bid.bidder_anonymous_id = data.get("bidder_anonymous_id")
         return bid

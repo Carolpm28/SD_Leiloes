@@ -19,16 +19,57 @@ document.addEventListener('DOMContentLoaded', function() {
     loadInitialData();
 });
 
-function initializeApp() {
+async function initializeApp() {
     console.log('Inicializando aplicação...');
     
     // Verificar conexão com API
     checkAPIConnection();
     setupFilters();
+    
+    // Verificar se esta autenticado
+    await checkAuthStatus();
+    
     // Configurar auto-refresh
-    setInterval(refreshAuctions, 30000); // Atualiza a cada 30 segundos
+    setInterval(refreshAuctions, 30000);
+}
 
-     
+async function checkAuthStatus() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/status`);
+        const data = await response.json();
+        
+        if (data.authenticated) {
+            // Utilizador está autenticado
+            console.log(`✓ Authenticated as ${data.username}`);
+            updateUIForAuthenticatedUser(data.username);
+        } else {
+            // Não autenticado - mostrar botões de login/registo
+            console.log('Not authenticated');
+            updateUIForGuestUser();
+        }
+    } catch (error) {
+        console.error('Erro ao verificar autenticação:', error);
+        updateUIForGuestUser();
+    }
+}
+
+function updateUIForAuthenticatedUser(username) {
+    // Esconder botões de login/registo
+    document.getElementById('btnLogin').style.display = 'none';
+    document.getElementById('btnRegister').style.display = 'none';
+    
+    // Mostrar username e botão de logout
+    const userActions = document.querySelector('.user-actions');
+    userActions.innerHTML = `
+        <span style="color: #6c757d; margin-right: 15px;">👤 ${username}</span>
+        <button class="btn-secondary" onclick="logout()">Sair</button>
+    `;
+}
+
+function updateUIForGuestUser() {
+    // Mostrar botões de login/registo normais
+    document.getElementById('btnLogin').style.display = 'inline-block';
+    document.getElementById('btnRegister').style.display = 'inline-block';
 }
 
 async function checkAPIConnection() {
@@ -214,9 +255,11 @@ async function loadAuctions() {
                                 <span class="detail-value">${formatDateTime(auction.closing_date)}</span>
                             </div>
                         </div>
-                        <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
-                            VER DETALHES E LICITAR
-                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                                    VER DETALHES E LICITAR
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -259,9 +302,11 @@ function createAuctionCard(auction) {
                     <span class="info-value">${closingDate.toLocaleString('pt-PT')}</span>
                 </div>
             </div>
-            <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
-                VER DETALHES E LICITAR
-            </button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                         VER DETALHES E LICITAR
+                </button>
+            </div>
         </div>
     </div>
 `;
@@ -274,7 +319,7 @@ async function loadMyAuctions() {
         const response = await fetch(`${API_BASE_URL}/api/auctions/mine`);
         const auctions = await response.json();
         
-        console.log('Meus leilões carregados:', auctions.length);
+        console.log('OsMeus leilões carregados:', auctions.length);
         
         const grid = document.querySelector('#page-meus-leiloes .auctions-grid');
         
@@ -325,11 +370,8 @@ function createMyAuctionCard(auction) {
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button class="btn-primary" onclick="viewAuctionBids('${auction.auction_id}')">
-                        VER LICITAÇÕES
-                    </button>
-                    <button class="btn-secondary" onclick="viewWinner('${auction.auction_id}')">
-                        VER VENCEDOR
+                    <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                            VER DETALHES E LICITAR
                     </button>
                 </div>
             </div>
@@ -450,6 +492,20 @@ async function loadMyBids() {
     }
 }
 
+async function handleCreateAuction(e) {
+    e.preventDefault();
+    
+    // VERIFICAR AUTENTICAÇÃO
+    const authCheck = await fetch(`${API_BASE_URL}/api/auth/status`);
+    const authData = await authCheck.json();
+    
+    if (!authData.authenticated) {
+        alert('Precisa fazer login primeiro!');
+        navigateTo('login');
+        return;
+    }
+}
+
 // ==================== CRIAR LEILÃO ====================
 
 function setupForms() {
@@ -471,7 +527,163 @@ function setupForms() {
     
     if (btnLogin) btnLogin.addEventListener('click', () => navigateTo('login'));
     if (btnRegister) btnRegister.addEventListener('click', () => navigateTo('register'));
+
+    // REGISTO
+    const formRegister = document.getElementById('formRegister');
+    if (formRegister) {
+        formRegister.addEventListener('submit', handleRegister);
+    }
+    
+    // LOGIN
+    const formLogin = document.getElementById('formLogin');
+    if (formLogin) {
+        formLogin.addEventListener('submit', handleLogin);
+    }
 }
+
+async function handleRegister(e) {
+    e.preventDefault();
+    
+    const username = document.getElementById('registerUsername').value;
+    const password = document.getElementById('registerPassword').value;
+    const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+    
+    // Validações
+    if (!username || !password) {
+        alert('Preencha todos os campos obrigatórios!');
+        return;
+    }
+    
+    if (password !== passwordConfirm) {
+        alert('As passwords não coincidem!');
+        return;
+    }
+    
+    if (password.length < 8) {
+        alert('Password deve ter pelo menos 8 caracteres!');
+        return;
+    }
+    
+    try {
+        // Mostrar loading
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        submitBtn.textContent = 'A registar...';
+        submitBtn.disabled = true;
+        
+        // Chamar API
+        const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Sucesso!
+            alert(`✓ Registo bem-sucedido!\nBem-vindo, ${data.username}!`);
+            
+            // Reset form
+            e.target.reset();
+            
+            // Atualizar UI
+            updateUIForAuthenticatedUser(data.username);
+            
+            // Navegar para página inicial
+            navigateTo('leiloes');
+            
+        } else {
+            // Erro
+            alert(`Erro: ${data.error || 'Registo falhou'}`);
+            submitBtn.textContent = originalText;
+            submitBtn.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Erro ao registar:', error);
+        alert('Erro ao conectar ao servidor!');
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    
+    const username = document.getElementById('loginEmail').value; // Usa o mesmo campo
+    const password = document.getElementById('loginPassword').value;
+    
+    // Validações
+    if (!username || !password) {
+        alert('Preencha todos os campos!');
+        return;
+    }
+    
+    try {
+        // Mostrar loading
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        submitBtn.textContent = 'A entrar...';
+        submitBtn.disabled = true;
+        
+        // Chamar API
+        const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Sucesso!
+            alert(`✓ Login bem-sucedido!\nBem-vindo de volta, ${data.username}!`);
+            
+            // Reset form
+            e.target.reset();
+            
+            // Atualizar UI
+            updateUIForAuthenticatedUser(data.username);
+            
+            // Navegar para página inicial
+            navigateTo('leiloes');
+            
+        } else {
+            // Erro
+            alert(`Erro: ${data.error || 'Login falhou'}`);
+            submitBtn.textContent = originalText;
+            submitBtn.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Erro ao fazer login:', error);
+        alert('Erro ao conectar ao servidor!');
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+    }
+}
+
+function logout() {
+    if (confirm('Tem a certeza que deseja sair?')) {
+        // Não há endpoint de logout no servidor
+        // Apenas atualiza UI
+        alert('✓ Sessão terminada!');
+        updateUIForGuestUser();
+        navigateTo('login');
+    }
+}
+
 
 async function handleCreateAuction(e) {
     e.preventDefault();
@@ -543,6 +755,15 @@ function showBidModal(auctionId, itemName, minBid) {
 }
 
 async function placeBid(auctionId, value) {
+    const authCheck = await fetch(`${API_BASE_URL}/api/auth/status`);
+    const authData = await authCheck.json();
+    
+    if (!authData.authenticated) {
+        alert('Precisa fazer login primeiro!');
+        navigateTo('login');
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_BASE_URL}/api/bids`, {
             method: 'POST',
@@ -882,9 +1103,11 @@ function renderFilteredAuctions(auctions) {
                             <span class="detail-value">${formatDateTime(auction.closing_date)}</span>
                         </div>
                     </div>
+                    <div style="display: flex; gap: 10px;">
                     <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
-                        VER DETALHES E LICITAR
+                            VER DETALHES E LICITAR
                     </button>
+                </div>
                 </div>
             </div>
         `;

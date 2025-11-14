@@ -29,6 +29,7 @@ class Database:
                 min_bid REAL,
                 categoria TEXT,
                 signature TEXT,
+                anonymous_token TEXT,
                 seller_anonymous_id TEXT,
                 is_mine INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -43,6 +44,7 @@ class Database:
                 value REAL NOT NULL,
                 timestamp TEXT NOT NULL,
                 signature TEXT,
+                anonymous_token TEXT,
                 bidder_cert TEXT,
                 bidder_anonymous_id TEXT,
                 is_mine INTEGER DEFAULT 0,
@@ -75,15 +77,12 @@ class Database:
             try:
                 cursor = self.conn.cursor()
                 
-                # Verificar se já existe
                 cursor.execute("SELECT is_mine FROM auctions WHERE auction_id = ?", (auction.auction_id,))
                 existing = cursor.fetchone()
                 
                 if existing:
-                    # Já existe 
                     return auction.auction_id
-                
-                # Não existe - inserir novo
+
                 cursor.execute("""
                     INSERT INTO auctions 
                     (auction_id, item, closing_date, min_bid, categoria, signature, 
@@ -96,6 +95,7 @@ class Database:
                     auction.min_bid,
                     auction.categoria,  
                     auction.signature,
+                    auction.anonymous_token,
                     auction.seller_anonymous_id,
                     1 if is_mine else 0
                 ))
@@ -195,6 +195,7 @@ class Database:
                     bid.value,
                     bid.timestamp,
                     bid.signature,
+                    bid.anonymous_token,
                     bid.bidder_cert,
                     bid.bidder_anonymous_id,
                     1 if is_mine else 0
@@ -279,6 +280,7 @@ class Database:
         )
         auction.auction_id = row["auction_id"]
         auction.signature = row["signature"]
+        auction.anonymous_token = row.get("anonymous_token")
         auction.seller_anonymous_id = row["seller_anonymous_id"]
         return auction
     
@@ -291,6 +293,7 @@ class Database:
         bid.bid_id = row["bid_id"]
         bid.timestamp = row["timestamp"]
         bid.signature = row["signature"]
+        bid.anonymous_token = row.get("anonymous_token") 
         bid.bidder_cert = row["bidder_cert"]
         bid.bidder_anonymous_id = row["bidder_anonymous_id"]
         return bid
