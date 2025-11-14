@@ -374,6 +374,19 @@ body {
     box-shadow: var(--shadow-md);
 }
 
+/* Leilões encerrados */
+.auction-closed {
+    opacity: 0.7;
+}
+
+.auction-closed .auction-image {
+    filter: grayscale(30%);
+}
+
+.badge-closed {
+    background: #6c757d;
+}
+
 .badge-day {
     display: block;
     font-size: 24px;

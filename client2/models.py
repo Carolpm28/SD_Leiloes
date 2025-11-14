@@ -1,7 +1,5 @@
-"""
-Estruturas de dados do sistema de leilões
-Define os formatos de auctions, bids e messages
-"""
+#Estruturas de dados do sistema de leilões. Define os formatos de auctions, bids e messages
+
 
 from datetime import datetime
 from typing import Optional
@@ -9,22 +7,19 @@ import uuid
 
 
 class Auction:
-    """
-    Representa um anúncio de leilão
-    """
+    #Representa um anúncio de leilão
     
     def __init__(self, item: str, closing_date: str, min_bid: Optional[float] = None, categoria: Optional[str] = None):
-        # ← categoria TEM QUE ESTAR AQUI!
         self.auction_id = str(uuid.uuid4())
         self.item = item
         self.closing_date = closing_date
         self.min_bid = min_bid
-        self.categoria = categoria  # ← AGORA pode usar
+        self.categoria = categoria  
         self.signature = None
         self.seller_anonymous_id = None
         
     def to_dict(self):
-        """Converte para dicionário (para enviar pela rede)"""
+        #Converte para dicionário (para enviar pela rede)
         return {
             "auction_id": self.auction_id,
             "item": self.item,
@@ -37,7 +32,7 @@ class Auction:
     
     @staticmethod
     def from_dict(data: dict):
-        """Cria Auction a partir de dicionário"""
+        #Cria Auction a partir de dicionário
         auction = Auction(
             item=data["item"],
             closing_date=data["closing_date"],
@@ -51,10 +46,7 @@ class Auction:
 
 
 class Bid:
-    """
-    Representa uma proposta (bid)
-    BID NÃO TEM CATEGORIA!
-    """
+    #Representa uma proposta (bid)
     
     def __init__(self, auction_id: str, value: float):
         self.bid_id = str(uuid.uuid4())
@@ -64,7 +56,6 @@ class Bid:
         self.signature = None
         self.bidder_cert = None
         self.bidder_anonymous_id = None
-        # ← SEM categoria!
         
     def to_dict(self):
         return {
@@ -82,7 +73,6 @@ class Bid:
         bid = Bid(
             auction_id=data["auction_id"],
             value=data["value"]
-            # ← SEM categoria!
         )
         bid.bid_id = data["bid_id"]
         bid.timestamp = data["timestamp"]
@@ -93,9 +83,8 @@ class Bid:
 
 
 class P2PMessage:
-    """
-    Mensagem genérica para comunicação P2P
-    """
+    #Mensagem genérica para comunicação P2P
+
     
     def __init__(self, msg_type: str, data: dict):
         self.type = msg_type

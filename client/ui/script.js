@@ -1,6 +1,6 @@
 // ==================== CONFIGURAÇÃO ====================
 
-// URL base da API - muda isto dependendo do cliente
+// URL base da API - mudar isto dependendo do cliente
 const API_BASE_URL = 'http://localhost:5001';
 
 // ==================== NAVEGAÇÃO ====================
@@ -83,7 +83,7 @@ function navigateTo(pageName) {
 async function loadPageData(pageName) {
     switch(pageName) {
         case 'leiloes':
-            await loadActiveAuctions();
+            await loadAuctions();
             break;
         case 'meus-leiloes':
             await loadMyAuctions();
@@ -94,27 +94,74 @@ async function loadPageData(pageName) {
     }
 }
 
+async function updateNetworkStatus() {
+    try {
+        const info = await fetch(`${API_BASE_URL}/api/info`).then(r => r.json());
+        const count = info.peers_count;
+        const status = document.getElementById('peer-count');
+        status.textContent = count > 0 ? `${count} peer(s)` : '0 peers';
+        status.style.color = count > 0 ? '#28a745' : '#dc3545';
+    } catch (error) {
+        console.error('Erro ao atualizar status:', error);
+    }
+}
+
+setInterval(updateNetworkStatus, 5000);
+
 // ==================== CARREGAR DADOS INICIAIS ====================
 
 async function loadInitialData() {
-    await loadActiveAuctions();
+    await loadAuctions();
 }
 
 async function refreshAuctions() {
     const currentPage = document.querySelector('.page-section.active');
     if (currentPage && currentPage.id === 'page-leiloes') {
-        await loadActiveAuctions();
+        await loadAuctions();
     }
 }
 
-// ==================== LEILÕES ATIVOS ====================
+// ==================== FUNÇÕES AUXILIARES ====================
 
-async function loadActiveAuctions() {
+function calculateTimeLeft(closingDate) {
+    const now = new Date();
+    const closing = new Date(closingDate);
+    const diff = closing - now;
+    
+    if (diff <= 0) {
+        return 'Encerrado';
+    }
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (days > 0) {
+        return `${days}d ${hours}h`;
+    } else if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    } else {
+        return `${minutes}m`;
+    }
+}
+
+function formatDateTime(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleString('pt-PT', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+// ==================== LEILÕES  ====================
+
+async function loadAuctions() {
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auctions/active`);
+        const response = await fetch(`${API_BASE_URL}/api/auctions`); 
         const auctions = await response.json();
-        
-        console.log('Leilões ativos carregados:', auctions.length);
         
         const grid = document.querySelector('#page-leiloes .auctions-grid');
         
@@ -126,7 +173,7 @@ async function loadActiveAuctions() {
                         <line x1="12" y1="8" x2="12" y2="12"/>
                         <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
-                    <h3>Nenhum leilão ativo no momento</h3>
+                    <h3>Nenhum leilão no momento</h3>
                     <p>Seja o primeiro a criar um leilão!</p>
                     <button class="btn-primary" onclick="navigateTo('criar')">CRIAR LEILÃO</button>
                 </div>
@@ -134,11 +181,49 @@ async function loadActiveAuctions() {
             return;
         }
         
-        grid.innerHTML = auctions.map(auction => createAuctionCard(auction)).join('');
+        grid.innerHTML = auctions.map(auction => {
+            // Calcula estado do leilão
+            const closingDate = new Date(auction.closing_date);
+            const now = new Date();
+            const isActive = closingDate > now;
+            const status = isActive ? 'Ativo' : 'Encerrado';
+            const badgeClass = isActive ? 'badge-active' : 'badge-closed';
+            
+            // Calcula tempo restante
+            const timeLeft = calculateTimeLeft(auction.closing_date);
+            
+            return `
+                <div class="auction-card ${isActive ? '' : 'auction-closed'}" data-id="${auction.auction_id}" data-status="${isActive ? 'active' : 'closed'}">
+                    <div class="auction-image">
+                        <img src="https://via.placeholder.com/300x200?text=${encodeURIComponent(auction.item)}" alt="${auction.item}">
+                        <span class="auction-badge ${badgeClass}">${status}</span>
+                    </div>
+                    <div class="auction-content">
+                        <h3 class="auction-title">${auction.item}</h3>
+                        <div class="auction-details">
+                            <div class="auction-detail-item">
+                                <span class="detail-label">Preço Mínimo:</span>
+                                <span class="detail-value">€${auction.min_bid ? auction.min_bid.toFixed(2) : '0.00'}</span>
+                            </div>
+                            <div class="auction-detail-item">
+                                <span class="detail-label">${isActive ? 'Termina em:' : 'Encerrado há:'}</span>
+                                <span class="detail-value">${timeLeft}</span>
+                            </div>
+                            <div class="auction-detail-item">
+                                <span class="detail-label">Data de Encerramento:</span>
+                                <span class="detail-value">${formatDateTime(auction.closing_date)}</span>
+                            </div>
+                        </div>
+                        <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                            VER DETALHES E LICITAR
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
         
     } catch (error) {
         console.error('Erro ao carregar leilões:', error);
-        showNotification('Erro ao carregar leilões!', 'error');
     }
 }
 
@@ -212,8 +297,8 @@ async function loadMyAuctions() {
         grid.innerHTML = auctions.map(auction => createMyAuctionCard(auction)).join('');
         
     } catch (error) {
-        console.error('Erro ao carregar meus leilões:', error);
-        showNotification('Erro ao carregar seus leilões!', 'error');
+        console.error('Erro ao carregar os meus leilões:', error);
+        showNotification('Erro ao carregar os seus leilões!', 'error');
     }
 }
 
@@ -481,7 +566,7 @@ async function placeBid(auctionId, value) {
         showNotification(`Licitação de €${value.toFixed(2)} enviada com sucesso!`, 'success');
         
         // Recarregar leilões
-        await loadActiveAuctions();
+        await loadAuctions();
         
     } catch (error) {
         console.error('Erro ao fazer licitação:', error);
@@ -493,7 +578,6 @@ async function placeBid(auctionId, value) {
 
 function showNotification(message, type = 'info') {
     // Por agora usa alert simples
-    // TODO: Implementar sistema de notificações bonito
     alert(message);
 }
 
@@ -556,11 +640,10 @@ function resetFilters() {
         ordenarPor: ''
     };
     
-    loadActiveAuctions();
+    loadAuctions();
 }
 
 async function applyFilters() {
-    // Obter valores dos filtros de forma mais robusta
     const filtersContainer = document.querySelector('.filters-sidebar');
     if (!filtersContainer) return;
     
@@ -576,12 +659,10 @@ async function applyFilters() {
     console.log('Aplicando filtros:', currentFilters);
     
     try {
-        // Mostrar loading
         const grid = document.querySelector('#page-leiloes .auctions-grid');
         grid.innerHTML = '<div style="text-align: center; padding: 40px;">Carregando...</div>';
         
-        // Carregar todos os leilões
-        const response = await fetch(`${API_BASE_URL}/api/auctions/active`);
+        const response = await fetch(`${API_BASE_URL}/api/auctions`); 
         
         if (!response.ok) {
             throw new Error('Erro ao carregar leilões');
@@ -590,7 +671,16 @@ async function applyFilters() {
         let auctions = await response.json();
         console.log(`Total de leilões: ${auctions.length}`);
         
-        // APLICAR FILTROS
+        //Marcar cada leilão como ativo ou encerrado
+        auctions = auctions.map(auction => {
+            const closingDate = new Date(auction.closing_date);
+            const now = new Date();
+            auction.isActive = closingDate > now;
+            auction.status = auction.isActive ? 'active' : 'closed';
+            return auction;
+        });
+        
+        // Aplicar filtros
         auctions = filterAuctions(auctions);
         
         console.log(`Após filtros: ${auctions.length} leilões`);
@@ -608,7 +698,7 @@ async function applyFilters() {
             <div class="empty-state">
                 <h3>Erro ao carregar leilões</h3>
                 <p>${error.message}</p>
-                <button class="btn-primary" onclick="loadActiveAuctions()">TENTAR NOVAMENTE</button>
+                <button class="btn-primary" onclick="loadAuctions()">TENTAR NOVAMENTE</button>
             </div>
         `;
     }
@@ -761,10 +851,46 @@ function renderFilteredAuctions(auctions) {
     }
     
     // Renderizar cards
-    grid.innerHTML = auctions.map(auction => createAuctionCard(auction)).join('');
+    grid.innerHTML = auctions.map(auction => {
+        // Calcula estado do leilão novamente
+        const closingDate = new Date(auction.closing_date);
+        const now = new Date();
+        const isActive = closingDate > now;
+        const status = isActive ? 'Ativo' : 'Encerrado';
+        const badgeClass = isActive ? 'badge-active' : 'badge-closed';
+        const timeLeft = calculateTimeLeft(auction.closing_date);
+        
+        return `
+            <div class="auction-card ${isActive ? '' : 'auction-closed'}" data-id="${auction.auction_id}">
+                <div class="auction-image">
+                    <img src="https://via.placeholder.com/300x200?text=${encodeURIComponent(auction.item)}" alt="${auction.item}">
+                    <span class="auction-badge ${badgeClass}">${status}</span>
+                </div>
+                <div class="auction-content">
+                    <h3 class="auction-title">${auction.item}</h3>
+                    <div class="auction-details">
+                        <div class="auction-detail-item">
+                            <span class="detail-label">Preço Mínimo:</span>
+                            <span class="detail-value">€${auction.min_bid ? auction.min_bid.toFixed(2) : '0.00'}</span>
+                        </div>
+                        <div class="auction-detail-item">
+                            <span class="detail-label">${isActive ? 'Termina em:' : 'Encerrado há:'}</span>
+                            <span class="detail-value">${timeLeft}</span>
+                        </div>
+                        <div class="auction-detail-item">
+                            <span class="detail-label">Data de Encerramento:</span>
+                            <span class="detail-value">${formatDateTime(auction.closing_date)}</span>
+                        </div>
+                    </div>
+                    <button class="btn-primary btn-full" onclick="viewAuctionDetails('${auction.auction_id}')">
+                        VER DETALHES E LICITAR
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
     
-    // Mostrar contador de resultados
-    console.log(`Mostrar ${auctions.length} leilão(ões)`);
+    console.log(`Renderizados ${auctions.length} leilão(ões)`);
 }
 
 // ==================== PÁGINA DE DETALHES DO LEILÃO ====================

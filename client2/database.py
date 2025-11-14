@@ -6,21 +6,19 @@ import sqlite3
 import json
 from typing import List, Optional
 from models import Auction, Bid
+from datetime import datetime
 
 
 class Database:
     def __init__(self, db_path="auction_client2.db"):
-        """
-        Inicializa a base de dados
-        Se não existir, cria as tabelas necessárias
-        """
+        #Inicializa a base de dados. Se não existir, cria as tabelas necessárias
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
         self.conn.row_factory = sqlite3.Row  # Permite aceder por nome de coluna
         self._create_tables()
     
     def _create_tables(self):
-        """Cria as tabelas se não existirem"""
+        #Cria as tabelas se não existirem
         cursor = self.conn.cursor()
         
         # Tabela de leilões
@@ -70,7 +68,7 @@ class Database:
     # ==================== AUCTIONS ====================
     
     def save_auction(self, auction: Auction, is_mine=False):
-        """Guarda um leilão na base de dados"""
+        #Guarda um leilão na base de dados
         max_retries = 5
         retry_delay = 0.1
         
@@ -83,10 +81,9 @@ class Database:
                 existing = cursor.fetchone()
                 
                 if existing:
-                    # Já existe - NÃO atualizar o is_mine!
+                    # Já existe 
                     return auction.auction_id
                 
-                # Não existe - inserir novo
                 # Não existe - inserir novo
                 cursor.execute("""
                     INSERT INTO auctions 
@@ -98,7 +95,7 @@ class Database:
                     auction.item,
                     auction.closing_date,
                     auction.min_bid,
-                    auction.categoria,  # ← Agora está na posição correta
+                    auction.categoria,  
                     auction.signature,
                     auction.seller_anonymous_id,
                     1 if is_mine else 0
@@ -116,7 +113,7 @@ class Database:
                     raise
     
     def get_auction(self, auction_id: str) -> Optional[Auction]:
-        """Obtém um leilão específico por ID"""
+        #Obtém um leilão específico por ID
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT * FROM auctions WHERE auction_id = ?
@@ -128,7 +125,7 @@ class Database:
         return None
     
     def get_all_auctions(self) -> List[Auction]:
-        """Obtém todos os leilões"""
+        #Obtém todos os leilões
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT * FROM auctions 
@@ -138,7 +135,7 @@ class Database:
         return [self._row_to_auction(row) for row in cursor.fetchall()]
     
     def get_my_auctions(self) -> List[Auction]:
-        """Obtém apenas os leilões que EU criei"""
+        #Obtém apenas os leilões que EU criei
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT * FROM auctions 
@@ -149,20 +146,39 @@ class Database:
         return [self._row_to_auction(row) for row in cursor.fetchall()]
     
     def get_active_auctions(self) -> List[Auction]:
-        """Obtém leilões ainda ativos (não fechados)"""
+            #Obtém leilões ainda ativos 
+            from datetime import datetime
+            
+            cursor = self.conn.cursor()
+            now = datetime.utcnow().isoformat()  
+            
+            cursor.execute("""
+                SELECT * FROM auctions 
+                WHERE closing_date > ?
+                ORDER BY closing_date ASC
+            """, (now,))
+            
+            return [self._row_to_auction(row) for row in cursor.fetchall()]
+    
+    def get_closed_auctions(self) -> List[Auction]:
+        #Obtém leilões já encerrados
+        from datetime import datetime
+        
         cursor = self.conn.cursor()
+        now = datetime.utcnow().isoformat()
+        
         cursor.execute("""
             SELECT * FROM auctions 
-            WHERE closing_date > datetime('now')
-            ORDER BY closing_date ASC
-        """)
+            WHERE closing_date <= ?
+            ORDER BY closing_date DESC
+        """, (now,))
         
         return [self._row_to_auction(row) for row in cursor.fetchall()]
-    
+
     # ==================== BIDS ====================
     
     def save_bid(self, bid: Bid, is_mine=False):
-        """Guarda um bid na base de dados"""
+        #Guarda um bid na base de dados
         max_retries = 5
         retry_delay = 0.1
         
@@ -197,7 +213,7 @@ class Database:
                     raise
     
     def get_bids_for_auction(self, auction_id: str) -> List[Bid]:
-        """Obtém todos os bids de um leilão específico"""
+        #Obtém todos os bids de um leilão específico
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT * FROM bids 
@@ -208,7 +224,7 @@ class Database:
         return [self._row_to_bid(row) for row in cursor.fetchall()]
     
     def get_my_bids(self) -> List[Bid]:
-        """Obtém apenas os bids que EU fiz"""
+        #Obtém apenas os bids que EU fiz
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT * FROM bids 
@@ -219,10 +235,7 @@ class Database:
         return [self._row_to_bid(row) for row in cursor.fetchall()]
     
     def get_winning_bid(self, auction_id: str) -> Optional[Bid]:
-        """
-        Obtém o bid vencedor de um leilão
-        Critério: maior valor, se empate → timestamp mais antigo
-        """
+        #Obtém o bid vencedor de um leilão. Critério: maior valor, caso empate → timestamp mais antigo
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT * FROM bids 
@@ -236,15 +249,34 @@ class Database:
             return self._row_to_bid(row)
         return None
     
+    def get_highest_bid(self, auction_id):
+        #Retorna o bid mais alto de um leilão
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM bids 
+            WHERE auction_id = ? 
+            ORDER BY value DESC 
+            LIMIT 1
+        """, (auction_id,))
+        row = cursor.fetchone()
+        return self._row_to_bid(row) if row else None
+
+    def is_my_auction(self, auction_id):
+        #Verifica se o leilão é meu
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT is_mine FROM auctions WHERE auction_id = ?", (auction_id,))
+        row = cursor.fetchone()
+        return row and row["is_mine"] == 1
+    
     # ==================== HELPERS ====================
     
     def _row_to_auction(self, row) -> Auction:
-        """Converte row SQL para objeto Auction"""
+        #Converte row SQL para objeto Auction
         auction = Auction(
             item=row["item"],
             closing_date=row["closing_date"],
             min_bid=row["min_bid"],
-            categoria=row["categoria"] if "categoria" in row.keys() else None  # ← MUDA ISTO
+            categoria=row["categoria"] if "categoria" in row.keys() else None 
         )
         auction.auction_id = row["auction_id"]
         auction.signature = row["signature"]
@@ -252,7 +284,7 @@ class Database:
         return auction
     
     def _row_to_bid(self, row) -> Bid:
-        """Converte row SQL para objeto Bid"""
+        #Converte row SQL para objeto Bid
         bid = Bid(
             auction_id=row["auction_id"],
             value=row["value"]
@@ -265,5 +297,5 @@ class Database:
         return bid
     
     def close(self):
-        """Fecha a conexão à base de dados"""
+        #Fecha a conexão à base de dados
         self.conn.close()

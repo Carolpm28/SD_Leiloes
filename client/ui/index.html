@@ -15,7 +15,7 @@
                 <p class="logo-subtitle">Leilões Seguros</p>
             </div>
             <nav class="nav">
-                <a href="#" class="nav-link active" data-page="leiloes">LEILÕES ATIVOS</a>
+                <a href="#" class="nav-link active" data-page="leiloes">LEILÕES</a>
                 <a href="#" class="nav-link" data-page="criar">CRIAR LEILÃO</a>
                 <a href="#" class="nav-link" data-page="meus-leiloes">OS MEUS LEILÕES</a>
                 <a href="#" class="nav-link" data-page="minhas-licitacoes">AS MINHAS LICITAÇÕES</a>
@@ -24,16 +24,19 @@
                 <button class="btn-secondary" id="btnLogin">Entrar</button>
                 <button class="btn-primary" id="btnRegister">Registar</button>
             </div>
+            <div class="network-status">
+                <span id="peer-count">0 peers</span>
+            </div>
         </div>
     </header>
 
     <!-- Main Content -->
     <main class="main-content">
         <div class="container">
-            <!-- Leilões Ativos Page -->
+            <!-- Leilões Page -->
             <section id="page-leiloes" class="page-section active">
                 <div class="page-header">
-                    <h2>LEILÕES ATIVOS</h2>
+                    <h2>LEILÕES </h2>
                 </div>
 
                 <div class="content-wrapper">
@@ -90,7 +93,6 @@
                     </aside>
 
                     <section class="auctions-grid">
-                        <!-- Os leilões ativos serão carregados dinamicamente aqui -->
                         <div class="empty-state">
                             <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                                 <circle cx="12" cy="12" r="10"/>

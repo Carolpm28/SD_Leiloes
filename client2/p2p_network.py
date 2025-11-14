@@ -7,8 +7,9 @@ from models import Auction, Bid, P2PMessage
 
 
 class P2PNetwork:
-    def __init__(self, host="0.0.0.0", port=0):
+    def __init__(self, host='0.0.0.0', port=0, database=None):
         # port=0 → o sistema escolhe uma porta livre automaticamente
+        self.db = database
         self.host = host
         self.port = port
         self.peers = []  # Lista de (ip, port) dos outros clientes
@@ -21,7 +22,7 @@ class P2PNetwork:
         
     #Inicia o servidor P2P
     def start(self):
-        """Inicia o servidor P2P (escuta conexões)"""
+        #Inicia o servidor P2P (escuta conexões)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind((self.host, self.port))
@@ -33,13 +34,13 @@ class P2PNetwork:
         
         print(f"P2P Node started on {self.host}:{self.port}")
         
-        # MUDA DE daemon=True para daemon=False
+    
         accept_thread = threading.Thread(target=self._accept_connections, daemon=False)
         accept_thread.start()
 
     #Para o servidor P2P
     def stop(self):
-        """Para o servidor P2P"""
+        #Para o servidor P2P
         self.running = False
         time.sleep(1.5)  # Dá tempo para threads terminarem
         
@@ -52,11 +53,11 @@ class P2PNetwork:
         print("P2P Node stopped")
     
     def _accept_connections(self):
-        """Aceita conexões de outros peers (thread separada)"""
+        #Aceita conexões de outros peers (thread separada)
         while self.running:
             try:
                 # Define timeout para não bloquear forever
-                self.socket.settimeout(1.0)  # ← ADICIONA ISTO
+                self.socket.settimeout(1.0)  
                 
                 try:
                     client_socket, address = self.socket.accept()
@@ -69,7 +70,7 @@ class P2PNetwork:
                 handler_thread = threading.Thread(
                     target=self._handle_peer,
                     args=(client_socket, address),
-                    daemon=False  # ← MUDA PARA False
+                    daemon=False  
                 )
                 handler_thread.start()
                 
@@ -78,52 +79,76 @@ class P2PNetwork:
                     print(f"Error accepting connection: {e}")
         
     def _handle_peer(self, client_socket, address):
-        #Processa mensagens recebidas de um peer
-        try:
-            # Recebe dados
-            data = b""
-            while True:
-                chunk = client_socket.recv(4096) # Recebe até 4KB
-                if not chunk:
-                    break
-                data += chunk
+            #Processa mensagens recebidas de um peer
+            try:
+                buffer = ""
                 
-                # Verifica se recebeu a mensagem completa (termina com \n)
-                if b"\n" in data:
-                    break
-            
-            if not data:
-                return
-            
-            # Converte JSON → Python dict
-            message_dict = json.loads(data.decode('utf-8'))
-            #Criar objeto P2PMessage
-            message = P2PMessage(
-                msg_type=message_dict["type"],
-                data=message_dict["data"]
-            )
-            
-            print(f"Received {message.type} from {address}")
-            
-            # Processa mensagem
-            self._process_message(message)
-            
-        except Exception as e:
-            print(f"Error handling peer {address}: {e}")
-        finally:
-            client_socket.close()
-    
-    def _process_message(self, message: P2PMessage):
-        #Processa mensagem recebida baseado no tipo
-        if message.type == "auction":
-            auction = Auction.from_dict(message.data)
-            if self.on_auction_received:
-                self.on_auction_received(auction)
+                while True:
+                    chunk = client_socket.recv(4096)
+                    if not chunk:
+                        break
+                    
+                    buffer += chunk.decode('utf-8')
+                    
+                    # Processa todas as mensagens completas no buffer
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        
+                        if not line.strip():
+                            continue
+                        
+                        try:
+                            message_dict = json.loads(line)
+                            msg_type = message_dict.get("type")
+                            
+                            print(f"Received {msg_type} from {address}")
+                            
+                            # Processa diferentes tipos de mensagem:
+                            
+                            if msg_type == "sync_request":
+                                # Alguém pediu nossos leilões
+                                print(f"Peer {address} pediu sincronização")
+                                requester_info = message_dict["data"].get("requester", "")
+                                if requester_info and ":" in requester_info:
+                                    host, port = requester_info.split(":")
+                                    self.send_sync_response(host, int(port))
+                            
+                            elif msg_type == "sync_response":
+                                # Recebemos leilões e bids na sincronização
+                                sync_data = message_dict["data"]
+                                print(f"Sincronização recebida")
+                                
+                                if self.on_sync_received:
+                                    self.on_sync_received(sync_data)
+                            
+                            elif msg_type == "auction":
+                                # Novo leilão broadcast
+                                auction = Auction.from_dict(message_dict["data"])
+                                if self.on_auction:
+                                    self.on_auction(auction)
+                            
+                            elif msg_type == "bid":
+                                # Novo bid broadcast
+                                bid = Bid.from_dict(message_dict["data"])
+                                if self.on_bid:
+                                    self.on_bid(bid)
+                            
+                            else:
+                                print(f"Tipo de mensagem desconhecido: {msg_type}")
+                        
+                        except json.JSONDecodeError as e:
+                            print(f"JSON inválido de {address}: {e}")
+                        except KeyError as e:
+                            print(f"Mensagem incompleta de {address}: falta {e}")
+                        except Exception as e:
+                            print(f"Erro ao processar mensagem: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
-        elif message.type == "bid":
-            bid = Bid.from_dict(message.data)
-            if self.on_bid_received:
-                self.on_bid_received(bid)
+            except Exception as e:
+                print(f"Erro no handler de {address}: {e}")
+            finally:
+                client_socket.close()
     
     # ==================== ENVIAR MENSAGENS ====================
     
@@ -147,7 +172,7 @@ class P2PNetwork:
         print(f"Broadcasted bid: {bid.value}€")
     
     def _broadcast(self, message: P2PMessage):
-        """Envia mensagem para todos os peers conhecidos"""
+        #Envia mensagem para todos os peers conhecidos
         if not self.peers:
             print("No peers to broadcast to")
             return
@@ -207,9 +232,71 @@ class P2PNetwork:
         #Retorna lista de peers conectados
         return self.peers.copy()
     
-    def register_callbacks(self, on_auction=None, on_bid=None):
+    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None):
         #Define funções callback para processar mensagens
         if on_auction:
             self.on_auction_received = on_auction
+            self.on_auction = on_auction  
         if on_bid:
             self.on_bid_received = on_bid
+            self.on_bid = on_bid  
+        if on_sync_received:
+            self.on_sync_received = on_sync_received  
+
+    #Pedir sincronização de leilões a um peer
+    def request_sync_from_peer(self, peer_host, peer_port):
+        #Pede a um peer que envie todos os seus leilões
+        #Usado quando nos conectamos pela primeira vez
+        try:
+            message = P2PMessage(
+                msg_type="sync_request",
+                data={"requester": f"{self.host}:{self.port}"}
+            )
+            
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            peer_socket.settimeout(5)
+            peer_socket.connect((peer_host, peer_port))
+            
+            message_json = json.dumps(message.to_dict()) + "\n"
+            peer_socket.sendall(message_json.encode('utf-8'))
+            peer_socket.close()
+            
+            print(f"Pedido de sincronização enviado a {peer_host}:{peer_port}")
+            
+        except Exception as e:
+            print(f"Erro ao pedir sync: {e}")
+    
+    def send_sync_response(self, peer_host, peer_port):
+        #Envia todos os nossos leilões para um peer que pediu
+
+        try:
+            # Obter TODOS os leilões da BD local
+            from database import Database
+            db = Database()  # Precisa acesso à BD
+            auctions = db.get_all_auctions()
+            bids = self.db.get_my_bids()
+            
+            # Serializar para enviar
+            auctions_data = [auction.to_dict() for auction in auctions]
+            bids_data = [bid.to_dict() for bid in bids]
+            
+            message = P2PMessage(
+                msg_type="sync_response",
+                data={
+                    "auctions": auctions_data,
+                    "bids": bids_data
+                }
+            )
+            
+            peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            peer_socket.settimeout(5)
+            peer_socket.connect((peer_host, peer_port))
+            
+            message_json = json.dumps(message.to_dict()) + "\n"
+            peer_socket.sendall(message_json.encode('utf-8'))
+            peer_socket.close()
+            
+            print(f"Enviados {len(auctions)} leilões e {len(bids)} bids para {peer_host}:{peer_port}")
+            
+        except Exception as e:
+            print(f"Erro ao enviar sync: {e}")
