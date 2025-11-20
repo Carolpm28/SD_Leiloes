@@ -82,6 +82,14 @@ class ServerClient:
             return response.get('ca_certificate')
         return None
     
+    def update_user_address(self, user_id, ip, port):
+        """Atualiza IP e porta do utilizador no servidor"""
+        return self._send_request('update_address', {
+            'user_id': user_id,
+            'ip': ip,
+            'port': port
+        })
+    
     # ========== Funções de descoberta P2P ==========
     
     def get_users_list(self) -> List[dict]:

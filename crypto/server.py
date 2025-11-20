@@ -402,23 +402,33 @@ async def handle_verify_token(data):
             conn.close()
 
 
-async def handle_get_users(data):
-    """Lista utilizadores registados (descoberta P2P)"""
+async def handle_get_users(data=None):
+    """Retorna lista de utilizadores registados"""
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
         c = conn.cursor()
-        c.execute('SELECT user_id, username, ip, port FROM users')
-        rows = c.fetchall()
         
-        users = [
-            {'user_id': r[0], 'username': r[1], 'ip': r[2], 'port': r[3]}
-            for r in rows
-        ]
+        c.execute('''
+            SELECT user_id, username, ip, port FROM users
+        ''')
         
-        return {'status': 'success', 'users': users}
+        users = []
+        for row in c.fetchall():
+            users.append({
+                'user_id': row[0],
+                'username': row[1],
+                'ip': row[2],
+                'port': row[3]
+            })
+        
+        return {
+            'status': 'success',
+            'users': users
+        }
     
     except Exception as e:
+        print(f"  Get users error: {e}")
         return {'status': 'error', 'message': str(e)}
     finally:
         if conn:
@@ -488,6 +498,32 @@ async def handle_get_ca_cert(data):
         'ca_certificate': SERVER_CERT_PEM.decode()
     }
 
+async def handle_update_address(data):
+   #Atualiza IP e porta de um utilizador
+    conn = None
+    try:
+        user_id = data['user_id']
+        ip = data['ip']
+        port = data['port']
+        
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        c = conn.cursor()
+        
+        c.execute('''
+            UPDATE users SET ip = ?, port = ? WHERE user_id = ?
+        ''', (ip, port, user_id))
+        conn.commit()
+        
+        print(f"  Updated address for {user_id}: {ip}:{port}")
+        
+        return {'status': 'success'}
+    
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
+    finally:
+        if conn:
+            conn.close()
+
 
 # ============================================================================
 # ROUTING TABLE
@@ -525,13 +561,15 @@ async def handle_client(reader, writer):
         elif action == 'login':
             response = await handle_login(data)
         elif action == 'get_users':
-            response = await handle_get_users()
+            response = await handle_get_users(data)
         elif action == 'get_ca_cert':
             response = await handle_get_ca_cert(data)  
         elif action == 'get_blind_token':
             response = await handle_get_blind_token(data)
         elif action == 'timestamp':
             response = await handle_timestamp(data)
+        elif action == 'update_address':
+            response = await handle_update_address(data)
         else:
             response = {'status': 'error', 'message': f'Unknown action: {action}'}
         

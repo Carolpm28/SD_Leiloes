@@ -243,11 +243,18 @@ class P2PNetwork:
     def request_sync_from_peer(self, peer_host, peer_port):
         #Pede a um peer que envie todos os seus leilões
         try:
-            requester_address = "localhost" if self.host == "0.0.0.0" else self.host
+            import socket as sock
+            try:
+                s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                my_ip = s.getsockname()[0]
+                s.close()
+            except:
+                my_ip = '127.0.0.1'
             
             message = P2PMessage(
                 msg_type="sync_request",
-                data={"requester": f"{requester_address}:{self.port}"}  
+                data={"requester": f"{my_ip}:{self.port}"}  
             )
             
             peer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -258,7 +265,7 @@ class P2PNetwork:
             peer_socket.sendall(message_json.encode('utf-8'))
             peer_socket.close()
             
-            print(f"Pedido de sincronização enviado a {peer_host}:{peer_port}")
+            print(f"Sync request sent to {peer_host}:{peer_port}")
             
         except Exception as e:
             print(f"Erro ao pedir sync: {e}")
@@ -267,15 +274,14 @@ class P2PNetwork:
 
     def send_sync_response(self, peer_host, peer_port):
         #Envia todos os nossos leilões para um peer que pediu
-
         try:
-            # Obter TODOS os leilões da BD local
-            from database import Database
-            db = Database()  # Precisa acesso à BD
-            auctions = db.get_all_auctions()
-            bids = self.db.get_my_bids()
+            if not self.db:
+                print("Database not available for sync")
+                return
+                
+            auctions = self.db.get_all_auctions()
+            bids = self.db.get_my_bids() if hasattr(self.db, 'get_my_bids') else []
             
-            # Serializar para enviar
             auctions_data = [auction.to_dict() for auction in auctions]
             bids_data = [bid.to_dict() for bid in bids]
             
@@ -295,7 +301,9 @@ class P2PNetwork:
             peer_socket.sendall(message_json.encode('utf-8'))
             peer_socket.close()
             
-            print(f"Enviados {len(auctions)} leilões para {peer_host}:{peer_port}")
+            print(f"Sent {len(auctions)} auctions to {peer_host}:{peer_port}")
             
         except Exception as e:
             print(f"Erro ao enviar sync: {e}")
+            import traceback
+            traceback.print_exc()

@@ -177,7 +177,7 @@ class Database:
     # ==================== BIDS ====================
     
     def save_bid(self, bid: Bid, is_mine=False):
-        #Guarda um bid na base de dados
+        """Guarda um bid na base de dados"""
         max_retries = 5
         retry_delay = 0.1
         
@@ -187,8 +187,8 @@ class Database:
                 cursor.execute("""
                     INSERT OR REPLACE INTO bids 
                     (bid_id, auction_id, value, timestamp, signature, 
-                    bidder_cert, bidder_anonymous_id, is_mine)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    anonymous_token, bidder_cert, bidder_anonymous_id, is_mine)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     bid.bid_id,
                     bid.auction_id,

@@ -447,7 +447,7 @@ def login_user():
     username = data.get('username')
     password = data.get('password')
     
-    print(f"\n🔐 Login attempt: username='{username}'")  # ← DEBUG
+    print(f"\n🔐 Login attempt: username='{username}'")
     
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
@@ -455,14 +455,27 @@ def login_user():
     # Login via crypto_manager
     success, message = crypto.login(username, password)
     
-    print(f"   Login result: success={success}, message='{message}'")  # ← DEBUG
+    print(f"   Login result: success={success}, message='{message}'")
     
     if success:
         global my_user_id
         my_user_id = crypto.user_id
         
-        print(f"   User ID: {my_user_id}")  # ← DEBUG
-        print(f"   Username: {crypto.username}")  # ← DEBUG
+        print(f"   User ID: {my_user_id}")
+        print(f"   Username: {crypto.username}")
+        
+        # ← ATUALIZAR IP/PORTA NO SERVIDOR
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            my_ip = s.getsockname()[0]
+            s.close()
+        except:
+            my_ip = '127.0.0.1'
+        
+        server.update_user_address(crypto.user_id, my_ip, network.port)
+        print(f"✓ Address updated: {my_ip}:{network.port}")
         
         # Descoberta automática de peers
         try:
@@ -481,7 +494,7 @@ def login_user():
                 
                 # Sincronização automática
                 if discovered > 0:
-                    print("Requesting sync from all peers...")
+                    print("📥 Requesting sync from all peers...")
                     for peer_host, peer_port in network.get_peers():
                         try:
                             network.request_sync_from_peer(peer_host, peer_port)
@@ -489,10 +502,10 @@ def login_user():
                         except Exception as e:
                             print(f"  ✗ Sync failed: {e}")
             else:
-                print("No other peers found on server\n")
+                print("ℹ️  No other peers found on server\n")
         
         except Exception as e:
-            print(f"Auto-discovery failed: {e}\n")
+            print(f"⚠️  Auto-discovery failed: {e}\n")
         
         return jsonify({
             "message": "Login successful",
@@ -500,9 +513,8 @@ def login_user():
             "username": crypto.username
         }), 200
     else:
-        print(f"   ✗ Login failed: {message}\n")  # ← DEBUG
+        print(f"   ✗ Login failed: {message}\n")
         return jsonify({"error": message}), 401
-
 
 @app.route('/api/auth/register', methods=['POST'])
 def register_user_endpoint():
@@ -516,10 +528,10 @@ def register_user_endpoint():
         return jsonify({"error": "Username and password required"}), 400
     
     try:
-        # Gerar chave pública
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.hazmat.backends import default_backend
+        import socket
         
         private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -533,28 +545,34 @@ def register_user_endpoint():
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         ).decode()
         
-        # Registar no servidor
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            my_ip = s.getsockname()[0]
+            s.close()
+        except:
+            my_ip = '127.0.0.1'
+        
+        print(f"Registering with IP: {my_ip}, Port: {network.port}")
+        
         response = server.register_user(
             username=username,
             public_key=public_key_pem,
-            ip='localhost',
+            ip=my_ip,  
             port=network.port
         )
         
         if response.get('status') == 'success':
-            # Guardar info localmente
             global my_user_id
             my_user_id = response['user_id']
             crypto.user_id = response['user_id']
             crypto.username = username
             
-            # ← ADICIONAR ISTO APENAS se a tua interface fizer login automático após registo
-            # Se precisar de fazer login manual depois, NÃO adicionar isto aqui
-            # (deixa só no endpoint de login)
+            print(f"\n✓ User '{username}' registered successfully (ID: {my_user_id})")
             
-            # SE fizer login automático:
+            # Descoberta automática de peers
             try:
-                print(f"\n🔍 Discovering peers for new user '{username}'...")
+                print(f"\nDiscovering peers for new user '{username}'...")
                 users = server.get_users_list()
                 
                 if users:
@@ -563,23 +581,25 @@ def register_user_endpoint():
                         if user.get('user_id') != my_user_id:
                             network.add_peer(user['ip'], user['port'])
                             discovered += 1
-                            print(f"  → Added peer: {user['username']} ({user['ip']}:{user['port']})")
+                            print(f"Added peer: {user['username']} ({user['ip']}:{user['port']})")
+                    print(f"Discovered {discovered} peers\n")
                     
-                    print(f"✓ Discovered {discovered} peers\n")
-                    
-                    # Sincronização inicial
+                    # ← SINCRONIZAÇÃO AUTOMÁTICA
                     if discovered > 0:
+                        print("Requesting sync from all peers...")
                         for peer_host, peer_port in network.get_peers():
                             try:
                                 network.request_sync_from_peer(peer_host, peer_port)
-                            except:
-                                pass
-            
+                                print(f"  → Sync requested from {peer_host}:{peer_port}")
+                            except Exception as e:
+                                print(f"  ✗ Sync failed: {e}")
+                                
             except Exception as e:
-                print(f"⚠️  Auto-discovery after registration failed: {e}")
+                print(f"Auto-discovery failed: {e}\n")
             
+            # ← RETURN NO FINAL
             return jsonify({
-                "message": "User registered successfully",
+                "message": "User registered successfully. Please login.",
                 "user_id": response['user_id'],
                 "username": username
             }), 201
@@ -587,6 +607,8 @@ def register_user_endpoint():
             return jsonify({"error": response.get('message', 'Registration failed')}), 400
     
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/auth/status', methods=['GET'])
