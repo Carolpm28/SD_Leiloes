@@ -69,9 +69,9 @@ class Database:
     # ==================== AUCTIONS ====================
     
     def save_auction(self, auction: Auction, is_mine=False):
-        #Guarda um leilão na base de dados
-        max_retries = 5 #número máximo de tentativas ao tentar executar uma operação
-        retry_delay = 0.1 #delay inicial entre tentativas
+        """Guarda um leilão na base de dados"""
+        max_retries = 5
+        retry_delay = 0.1
         
         for attempt in range(max_retries):
             try:
@@ -86,8 +86,8 @@ class Database:
                 cursor.execute("""
                     INSERT INTO auctions 
                     (auction_id, item, closing_date, min_bid, categoria, signature, 
-                    seller_anonymous_id, is_mine)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    anonymous_token, seller_anonymous_id, is_mine)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     auction.auction_id,
                     auction.item,
@@ -106,7 +106,7 @@ class Database:
                 if "locked" in str(e) and attempt < max_retries - 1:
                     import time
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay *= 2
                     continue
                 else:
                     raise
@@ -276,11 +276,11 @@ class Database:
             item=row["item"],
             closing_date=row["closing_date"],
             min_bid=row["min_bid"],
-            categoria=row["categoria"] if "categoria" in row.keys() else None  # ← MUDA ISTO
+            categoria=row["categoria"] if "categoria" in row.keys() else None  
         )
         auction.auction_id = row["auction_id"]
         auction.signature = row["signature"]
-        auction.anonymous_token = row.get("anonymous_token")
+        auction.anonymous_token = row["anonymous_token"] if "anonymous_token" in row.keys() else None
         auction.seller_anonymous_id = row["seller_anonymous_id"]
         return auction
     
@@ -293,7 +293,7 @@ class Database:
         bid.bid_id = row["bid_id"]
         bid.timestamp = row["timestamp"]
         bid.signature = row["signature"]
-        bid.anonymous_token = row.get("anonymous_token") 
+        bid.anonymous_token = row["anonymous_token"] if "anonymous_token" in row.keys() else None
         bid.bidder_cert = row["bidder_cert"]
         bid.bidder_anonymous_id = row["bidder_anonymous_id"]
         return bid

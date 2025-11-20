@@ -11,7 +11,7 @@ from database import Database
 from p2p_network import P2PNetwork
 from models import Auction, Bid
 from crypto_manager import CryptoManager
-from server_client import ServerClient  # ← ADICIONAR ISTO
+from server_client import ServerClient  
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -22,7 +22,7 @@ CORS(app)  # Permite requests da frontend
 db = Database("auction_client.db")
 network = P2PNetwork(port=0, database=db)
 crypto = CryptoManager(server_url="http://localhost:5000")
-server = ServerClient()  # ← ADICIONAR ISTO - Cliente para servidor central
+server = ServerClient()  
 
 # Estado global
 my_user_id = None  # ID do utilizador (definir depois)
@@ -140,68 +140,69 @@ def get_my_auctions():
 
 @app.route('/api/auctions', methods=['POST'])
 def create_auction():
-    #Cria novo leilão ANÓNIMO com blind signature
-    data = request.json
+    """Cria novo leilão com anonimato"""
     
     # Validar autenticação
     if not crypto.user_id:
         return jsonify({"error": "Not authenticated"}), 401
     
-    # Validar dados
-    if not data.get('item') or not data.get('closing_date'):
-        return jsonify({"error": "Missing required fields"}), 400
+    data = request.json
+    
+    item = data.get('item')
+    closing_date = data.get('closing_date')
+    min_bid = data.get('min_bid')
+    categoria = data.get('categoria')
+    
+    if not item or not closing_date:
+        return jsonify({"error": "Item and closing date are required"}), 400
     
     try:
-        # 1. PEDIR TOKEN ANÓNIMO AO SERVIDOR CENTRAL
-        print("Requesting anonymous token from server...")
+        print("\nRequesting anonymous token from server...")
         
-        # ← ALTERAR: Usar server_client em vez de crypto
-        # Gerar mensagem cega primeiro (usar BlindSignature do crypto)
-        from crypto.blind_signature import BlindSignature
-        bs = BlindSignature()
+        # Gerar mensagem para blind signature
+        import secrets
+        import hashlib
         
-        # Obter chave pública do servidor
-        blind_pub_key_pem = server.get_ca_certificate()  # Temporário, idealmente ter método separado
+        message = f"AUCTION_{secrets.token_hex(16)}"
+        msg_hash = hashlib.sha256(message.encode()).hexdigest()
         
-        # Criar token único
-        import uuid
-        token_message = f"auction_token_{uuid.uuid4()}"
+        # Pedir token cego ao servidor
+        token_response = server.get_blind_token(msg_hash)
         
-        # Cegar mensagem
-        # blinded_msg, r, msg_hash = bs.blind(token_message, blind_public_key)
+        if token_response:
+            anonymous_token = token_response.get('blind_signature', msg_hash[:32])
+            print(f"Anonymous token obtained: {anonymous_token[:20]}...")
+        else:
+            anonymous_token = msg_hash[:32]
+            print(f"Using fallback token: {anonymous_token[:20]}...")
         
-        # Por agora, simplificar - pedir token diretamente
-        token_response = server.get_blind_token(token_message)
-        
-        if not token_response:
-            return jsonify({"error": "Failed to get anonymous token"}), 500
-        
-        token = token_response.get('blind_signature')
-        print(f"Anonymous token obtained: {token[:40]}...")
-        
-        # 2. Criar leilão
+        # ← CORRIGIDO: Criar leilão só com parâmetros aceites
         auction = Auction(
-            item=data['item'],
-            closing_date=data['closing_date'],
-            min_bid=data.get('min_bid'),
-            categoria=data.get('categoria')
+            item=item,
+            closing_date=closing_date,
+            min_bid=float(min_bid) if min_bid else None,
+            categoria=categoria
         )
         
-        # 3. ADICIONAR TOKEN ANÓNIMO
-        auction.anonymous_token = token
+        # ← Definir atributos adicionais DEPOIS
+        auction.anonymous_token = anonymous_token
         auction.seller_anonymous_id = crypto.get_anonymous_id()
         
-        # 4. Guardar localmente (is_mine=True)
+        # Guardar na base de dados local
         db.save_auction(auction, is_mine=True)
         
-        # 5. Broadcast para a rede P2P
-        try:
-            network.broadcast_auction(auction)
-            print(f"Auction broadcasted anonymously: {auction.item}")
-        except Exception as e:
-            print(f"Erro no broadcast (ignorando): {e}")
+        # Broadcast P2P
+        network.broadcast_auction(auction)
         
-        return jsonify(auction.to_dict()), 201
+        print(f"Auction broadcasted anonymously: {item}")
+        
+        return jsonify({
+            "auction_id": auction.auction_id,
+            "item": auction.item,
+            "closing_date": auction.closing_date,
+            "min_bid": auction.min_bid,
+            "anonymous_token": anonymous_token[:16] + "..."
+        }), 201
         
     except Exception as e:
         print(f"Erro ao criar leilão: {e}")
@@ -437,73 +438,16 @@ def get_info():
 
 # ==================== AUTENTICAÇÃO ====================
 
-@app.route('/api/auth/register', methods=['POST'])
-def register_user_endpoint():
-    """Regista utilizador no servidor central"""
-    data = request.json
-    
-    username = data.get('username')
-    password = data.get('password')
-    
-    if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
-    
-    try:
-        # ← ALTERAR: Usar server_client
-        # Gerar chave pública
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.hazmat.backends import default_backend
-        
-        # Gerar par de chaves (ou usar do crypto_manager)
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-            backend=default_backend()
-        )
-        public_key = private_key.public_key()
-        
-        public_key_pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode()
-        
-        # Registar no servidor
-        response = server.register_user(
-            username=username,
-            public_key=public_key_pem,
-            ip='localhost',  # TODO: obter IP real
-            port=network.port
-        )
-        
-        if response.get('status') == 'success':
-            # Guardar info localmente
-            global my_user_id
-            my_user_id = response['user_id']
-            crypto.user_id = response['user_id']
-            crypto.username = username
-            
-            # TODO: Guardar certificado
-            
-            return jsonify({
-                "message": "User registered successfully",
-                "user_id": response['user_id'],
-                "username": username
-            }), 201
-        else:
-            return jsonify({"error": response.get('message', 'Registration failed')}), 400
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/auth/login', methods=['POST'])
 def login_user():
-    """Faz login no servidor central"""
+    """Faz login e descobre peers automaticamente"""
     data = request.json
     
     username = data.get('username')
     password = data.get('password')
+    
+    print(f"\n🔐 Login attempt: username='{username}'")  # ← DEBUG
     
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
@@ -511,27 +455,31 @@ def login_user():
     # Login via crypto_manager
     success, message = crypto.login(username, password)
     
+    print(f"   Login result: success={success}, message='{message}'")  # ← DEBUG
+    
     if success:
         global my_user_id
         my_user_id = crypto.user_id
         
-        # ← ADICIONAR ISTO: Descoberta automática após login bem-sucedido
+        print(f"   User ID: {my_user_id}")  # ← DEBUG
+        print(f"   Username: {crypto.username}")  # ← DEBUG
+        
+        # Descoberta automática de peers
         try:
-            print(f"\n🔍 Discovering peers for user '{username}'...")
+            print("\n🔍 Discovering peers from server...")
             users = server.get_users_list()
             
             if users:
                 discovered = 0
                 for user in users:
-                    # Não adicionar a si próprio
                     if user.get('username') != username and user.get('user_id') != my_user_id:
                         network.add_peer(user['ip'], user['port'])
                         discovered += 1
                         print(f"  → Added peer: {user['username']} ({user['ip']}:{user['port']})")
                 
-                print(f"✓ Discovered {discovered} peers automatically\n")
+                print(f"✓ Discovered {discovered} peers\n")
                 
-                # Pedir sincronização de todos os peers
+                # Sincronização automática
                 if discovered > 0:
                     print("Requesting sync from all peers...")
                     for peer_host, peer_port in network.get_peers():
@@ -540,19 +488,19 @@ def login_user():
                             print(f"  → Sync requested from {peer_host}:{peer_port}")
                         except Exception as e:
                             print(f"  ✗ Sync failed: {e}")
-                    print("✓ Sync complete\n")
             else:
-                print("ℹNo other peers found on server\n")
+                print("No other peers found on server\n")
         
         except Exception as e:
-            print(f"Auto-discovery after login failed: {e}\n")
+            print(f"Auto-discovery failed: {e}\n")
         
         return jsonify({
-            "message": message,
+            "message": "Login successful",
             "user_id": crypto.user_id,
             "username": crypto.username
         }), 200
     else:
+        print(f"   ✗ Login failed: {message}\n")  # ← DEBUG
         return jsonify({"error": message}), 401
 
 

@@ -2,6 +2,8 @@
 Servidor Central do Sistema de Leilões P2P
 Todas as chaves guardadas na BD
 """
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.backends import default_backend
 
 import asyncio
 import json
@@ -214,24 +216,104 @@ async def handle_register(data):
         ''', (user_id, username, pub_key_pem, ip, port))
         conn.commit()
         
+        # Converter PEM para objeto
+        from cryptography.hazmat.primitives import serialization
+        user_public_key = serialization.load_pem_public_key(
+            pub_key_pem.encode(),
+            backend=default_backend()
+        )
+        
         # Emitir certificado
-        cert_pem = CA.issue_certificate(username, pub_key_pem)
+        cert_pem = CA.issue_certificate(user_id, username, user_public_key)
+        
+        # ← VERIFICAR TIPO
+        if isinstance(cert_pem, bytes):
+            cert_str = cert_pem.decode()
+        else:
+            cert_str = cert_pem
+        
+        if isinstance(SERVER_CERT_PEM, bytes):
+            ca_cert_str = SERVER_CERT_PEM.decode()
+        else:
+            ca_cert_str = SERVER_CERT_PEM
         
         return {
             'status': 'success',
             'user_id': user_id,
-            'certificate': cert_pem.decode(),
-            'ca_certificate': SERVER_CERT_PEM.decode()
+            'certificate': cert_str,
+            'ca_certificate': ca_cert_str
         }
     
     except sqlite3.IntegrityError:
         return {'status': 'error', 'message': 'Username already exists'}
     except Exception as e:
+        print(f"  Register error: {e}")
+        import traceback
+        traceback.print_exc()
         return {'status': 'error', 'message': str(e)}
     finally:
         if conn:
             conn.close()
 
+
+async def handle_login(data):
+    #Autentica utilizador existente
+    conn = None
+    try:
+        username = data['username']
+        password = data['password']  # TODO: verificar password hash
+        
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        c = conn.cursor()
+        
+        # procurar utilizador
+        c.execute('''
+            SELECT user_id, public_key FROM users WHERE username = ?
+        ''', (username,))
+        
+        row = c.fetchone()
+        
+        if not row:
+            return {'status': 'error', 'message': 'User not found'}
+        
+        user_id, pub_key_pem = row
+        
+        # Converter PEM para objeto de chave pública
+        from cryptography.hazmat.primitives import serialization
+        user_public_key = serialization.load_pem_public_key(
+            pub_key_pem.encode(),
+            backend=default_backend()
+        )
+        
+        # Emitir novo certificado
+        cert_pem = CA.issue_certificate(user_id, username, user_public_key)
+        
+        # ← VERIFICAR SE É STRING OU BYTES
+        if isinstance(cert_pem, bytes):
+            cert_str = cert_pem.decode()
+        else:
+            cert_str = cert_pem
+        
+        if isinstance(SERVER_CERT_PEM, bytes):
+            ca_cert_str = SERVER_CERT_PEM.decode()
+        else:
+            ca_cert_str = SERVER_CERT_PEM
+        
+        return {
+            'status': 'success',
+            'user_id': user_id,
+            'certificate': cert_str,
+            'ca_certificate': ca_cert_str
+        }
+    
+    except Exception as e:
+        print(f"  Login error: {e}")
+        import traceback
+        traceback.print_exc()  # ← DEBUG detalhado
+        return {'status': 'error', 'message': str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 async def handle_get_blind_token(data):
     """Emite token cego para anonimato"""
@@ -426,49 +508,43 @@ HANDLERS = {
 # ============================================================================
 
 async def handle_client(reader, writer):
-    """Handler para cada conexão de cliente"""
+    """Handle client connection"""
     addr = writer.get_extra_info('peername')
     print(f"→ Connection from {addr}")
     
     try:
-        # Ler dados
-        data = await reader.read(65536)
-        if not data:
-            print(f"  ✗ Empty request")
-            return
+        data_bytes = await reader.read(100000)
+        data = json.loads(data_bytes.decode())
         
-        # Parse JSON
-        message = json.loads(data.decode('utf-8'))
-        action = message.get('action')
-        
+        action = data.get('action')
         print(f"  Action: {action}")
         
-        # Processar
-        handler = HANDLERS.get(action)
-        if handler:
-            response = await handler(message)
+        # Route to appropriate handler
+        if action == 'register':
+            response = await handle_register(data)
+        elif action == 'login':
+            response = await handle_login(data)
+        elif action == 'get_users':
+            response = await handle_get_users()
+        elif action == 'get_ca_cert':
+            response = await handle_get_ca_cert(data)  
+        elif action == 'get_blind_token':
+            response = await handle_get_blind_token(data)
+        elif action == 'timestamp':
+            response = await handle_timestamp(data)
         else:
             response = {'status': 'error', 'message': f'Unknown action: {action}'}
         
-        # Enviar resposta
-        writer.write(json.dumps(response).encode('utf-8'))
+        # Send response
+        response_bytes = json.dumps(response).encode()
+        writer.write(response_bytes)
         await writer.drain()
+        print(f"Response sent\n")
         
-        print(f"  ✓ Response sent")
-    
-    except json.JSONDecodeError as e:
-        print(f"  ✗ Invalid JSON: {e}")
-        error = json.dumps({'status': 'error', 'message': 'Invalid JSON'})
-        writer.write(error.encode('utf-8'))
-        await writer.drain()
-    
     except Exception as e:
-        print(f"  ✗ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        error = json.dumps({'status': 'error', 'message': str(e)})
-        writer.write(error.encode('utf-8'))
+        print(f"Error: {e}\n")
+        error_response = {'status': 'error', 'message': str(e)}
+        writer.write(json.dumps(error_response).encode())
         await writer.drain()
     
     finally:

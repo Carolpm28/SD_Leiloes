@@ -8,7 +8,7 @@ import json
 from typing import Optional, Dict, List
 
 # Configuração do servidor
-SERVER_HOST = '10.130.41.91'
+SERVER_HOST = '192.168.1.83'
 SERVER_PORT = 9999
 
 class ServerClient:
@@ -61,6 +61,13 @@ class ServerClient:
             'public_key': public_key,
             'ip': ip,
             'port': port
+        })
+    
+    def login_user(self, username, password):
+        """Faz login no servidor"""
+        return self._send_request('login', {  
+            'username': username,
+            'password': password
         })
     
     def get_ca_certificate(self) -> Optional[str]:

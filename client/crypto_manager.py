@@ -148,23 +148,16 @@ class CryptoManager:
             return False, str(e)
     
     def login(self, username, password):
-        #Faz login no servidor
-        #1. Autentica com username/password
-        #2. Carrega chaves locais
-        #3. Recebe certificado do servidor
-
+        #faz login no servidor
         try:
-            # Autenticar no servidor
-            response = requests.post(f"{self.server_url}/api/login", json={
-                "username": username,
-                "password": password
-            })
+            response = self.server_client.login_user(username, password)
             
-            if response.status_code == 200:
-                data = response.json()
-                self.user_id = data['user_id']
+            print(f"[DEBUG] Server response: {response}")
+            
+            if response.get('status') == 'success':
+                self.user_id = response['user_id']
                 self.username = username
-                self.certificate = data.get('certificate')
+                self.certificate = response.get('certificate')
                 
                 # Carregar chaves locais
                 self._load_keys(username)
@@ -172,7 +165,8 @@ class CryptoManager:
                 print(f"✓ User {username} logged in")
                 return True, "Login successful"
             else:
-                return False, response.json().get('error', 'Login failed')
+                error_msg = response.get('message', 'Login failed')
+                return False, error_msg
                 
         except Exception as e:
             print(f"Login error: {e}")
