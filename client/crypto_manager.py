@@ -80,7 +80,7 @@ class CryptoManager:
                     response.json()['certificate'].encode(),
                     self.backend
                 )
-                print("✓ CA certificate loaded")
+                print("CA certificate loaded")
         except Exception as e:
             print(f"Could not fetch CA certificate: {e}")
     
@@ -138,7 +138,7 @@ class CryptoManager:
                 # Guardar chaves localmente
                 self._save_keys(username)
                 
-                print(f"✓ User {username} registered successfully")
+                print(f"User {username} registered successfully")
                 return True, "Registration successful"
             else:
                 return False, response.json().get('error', 'Registration failed')
@@ -162,7 +162,7 @@ class CryptoManager:
                 # Carregar chaves locais
                 self._load_keys(username)
                 
-                print(f"✓ User {username} logged in")
+                print(f"User {username} logged in")
                 return True, "Login successful"
             else:
                 error_msg = response.get('message', 'Login failed')
@@ -202,7 +202,7 @@ class CryptoManager:
                 # 5. Criar token
                 token = self._create_token(msg_hash, signature)
                 
-                print("✓ Anonymous token obtained")
+                print("Anonymous token obtained")
                 return token, None
             else:
                 return None, "Failed to obtain blind signature"
@@ -383,11 +383,4 @@ if __name__ == "__main__":
     
     cm = CryptoManager(server_url="http://localhost:5000")
     
-    # Simular registo
-    # success, msg = cm.register("alice", "password123", "192.168.1.10", 5001)
-    # print(f"Register: {success} - {msg}\n")
     
-    # Simular obtenção de token anónimo
-    # token, error = cm.request_anonymous_token()
-    # if token:
-    #     print(f"Token: {token[:60]}...\n")

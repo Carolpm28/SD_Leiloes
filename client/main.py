@@ -101,7 +101,7 @@ network.register_callbacks(
 
 @app.route('/')
 def index():
-    """Serve a página principal (index.html)"""
+    #Serve a página principal (index.html)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     ui_dir = os.path.join(current_dir, 'ui')
     return send_from_directory(ui_dir, 'index.html')
@@ -109,7 +109,7 @@ def index():
 
 @app.route('/<path:filename>')
 def serve_static(filename):
-    """Serve CSS, JS e outros ficheiros estáticos"""
+    #Serve CSS, JS e outros ficheiros estáticos
     current_dir = os.path.dirname(os.path.abspath(__file__))
     ui_dir = os.path.join(current_dir, 'ui')
     return send_from_directory(ui_dir, filename)
@@ -140,7 +140,7 @@ def get_my_auctions():
 
 @app.route('/api/auctions', methods=['POST'])
 def create_auction():
-    """Cria novo leilão com anonimato"""
+    #Cria novo leilão com anonimato
     
     # Validar autenticação
     if not crypto.user_id:
@@ -176,15 +176,15 @@ def create_auction():
             anonymous_token = msg_hash[:32]
             print(f"Using fallback token: {anonymous_token[:20]}...")
         
-        # ← CORRIGIDO: Criar leilão só com parâmetros aceites
+
         auction = Auction(
             item=item,
             closing_date=closing_date,
             min_bid=float(min_bid) if min_bid else None,
             categoria=categoria
         )
-        
-        # ← Definir atributos adicionais DEPOIS
+
+
         auction.anonymous_token = anonymous_token
         auction.seller_anonymous_id = crypto.get_anonymous_id()
         
@@ -295,7 +295,7 @@ def create_bid():
         import uuid
         token_message = f"bid_token_{uuid.uuid4()}"
         
-        # ← ALTERAR: Usar server_client
+
         token_response = server.get_blind_token(token_message)
         
         if not token_response:
@@ -385,7 +385,6 @@ def add_peer():
     return jsonify({"message": "Peer added and sync requested"}), 201
 
 
-# ← NOVO ENDPOINT: Descobrir peers via servidor central
 @app.route('/api/peers/discover', methods=['POST'])
 def discover_peers():
     """Descobre peers registados no servidor central"""
@@ -441,13 +440,13 @@ def get_info():
 
 @app.route('/api/auth/login', methods=['POST'])
 def login_user():
-    """Faz login e descobre peers automaticamente"""
+    #Faz login e descobre peers automaticamente
     data = request.json
     
     username = data.get('username')
     password = data.get('password')
     
-    print(f"\n🔐 Login attempt: username='{username}'")
+    print(f"\nLogin attempt: username='{username}'")
     
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
@@ -455,16 +454,15 @@ def login_user():
     # Login via crypto_manager
     success, message = crypto.login(username, password)
     
-    print(f"   Login result: success={success}, message='{message}'")
+    print(f"Login result: success={success}, message='{message}'")
     
     if success:
         global my_user_id
         my_user_id = crypto.user_id
         
-        print(f"   User ID: {my_user_id}")
-        print(f"   Username: {crypto.username}")
+        print(f"User ID: {my_user_id}")
+        print(f"Username: {crypto.username}")
         
-        # ← ATUALIZAR IP/PORTA NO SERVIDOR
         try:
             import socket
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -475,11 +473,11 @@ def login_user():
             my_ip = '127.0.0.1'
         
         server.update_user_address(crypto.user_id, my_ip, network.port)
-        print(f"✓ Address updated: {my_ip}:{network.port}")
+        print(f"Address updated: {my_ip}:{network.port}")
         
         # Descoberta automática de peers
         try:
-            print("\n🔍 Discovering peers from server...")
+            print("\nDiscovering peers from server...")
             users = server.get_users_list()
             
             if users:
@@ -488,24 +486,24 @@ def login_user():
                     if user.get('username') != username and user.get('user_id') != my_user_id:
                         network.add_peer(user['ip'], user['port'])
                         discovered += 1
-                        print(f"  → Added peer: {user['username']} ({user['ip']}:{user['port']})")
+                        print(f"Added peer: {user['username']} ({user['ip']}:{user['port']})")
                 
-                print(f"✓ Discovered {discovered} peers\n")
+                print(f"Discovered {discovered} peers\n")
                 
                 # Sincronização automática
                 if discovered > 0:
-                    print("📥 Requesting sync from all peers...")
+                    print("Requesting sync from all peers...")
                     for peer_host, peer_port in network.get_peers():
                         try:
                             network.request_sync_from_peer(peer_host, peer_port)
-                            print(f"  → Sync requested from {peer_host}:{peer_port}")
+                            print(f"Sync requested from {peer_host}:{peer_port}")
                         except Exception as e:
-                            print(f"  ✗ Sync failed: {e}")
+                            print(f"Sync failed: {e}")
             else:
-                print("ℹ️  No other peers found on server\n")
+                print("No other peers found on server\n")
         
         except Exception as e:
-            print(f"⚠️  Auto-discovery failed: {e}\n")
+            print(f"Auto-discovery failed: {e}\n")
         
         return jsonify({
             "message": "Login successful",
@@ -513,12 +511,12 @@ def login_user():
             "username": crypto.username
         }), 200
     else:
-        print(f"   ✗ Login failed: {message}\n")
+        print(f"Login failed: {message}\n")
         return jsonify({"error": message}), 401
 
 @app.route('/api/auth/register', methods=['POST'])
 def register_user_endpoint():
-    """Regista utilizador no servidor central"""
+    #Regista utilizador no servidor central
     data = request.json
     
     username = data.get('username')
@@ -568,7 +566,7 @@ def register_user_endpoint():
             crypto.user_id = response['user_id']
             crypto.username = username
             
-            print(f"\n✓ User '{username}' registered successfully (ID: {my_user_id})")
+            print(f"\nUser '{username}' registered successfully (ID: {my_user_id})")
             
             # Descoberta automática de peers
             try:
@@ -584,20 +582,20 @@ def register_user_endpoint():
                             print(f"Added peer: {user['username']} ({user['ip']}:{user['port']})")
                     print(f"Discovered {discovered} peers\n")
                     
-                    # ← SINCRONIZAÇÃO AUTOMÁTICA
+
                     if discovered > 0:
                         print("Requesting sync from all peers...")
                         for peer_host, peer_port in network.get_peers():
                             try:
                                 network.request_sync_from_peer(peer_host, peer_port)
-                                print(f"  → Sync requested from {peer_host}:{peer_port}")
+                                print(f"Sync requested from {peer_host}:{peer_port}")
                             except Exception as e:
                                 print(f"  ✗ Sync failed: {e}")
                                 
             except Exception as e:
                 print(f"Auto-discovery failed: {e}\n")
             
-            # ← RETURN NO FINAL
+  
             return jsonify({
                 "message": "User registered successfully. Please login.",
                 "user_id": response['user_id'],
@@ -631,10 +629,10 @@ def auth_status():
                         if peer not in network.get_peers():
                             network.add_peer(user['ip'], user['port'])
                             discovered += 1
-                            print(f"  → New peer: {user['username']} ({user['ip']}:{user['port']})")
+                            print(f"New peer: {user['username']} ({user['ip']}:{user['port']})")
                 
                 if discovered > 0:
-                    print(f"✓ Re-discovered {discovered} new peers\n")
+                    print(f"Re-discovered {discovered} new peers\n")
                     
                     # Sincronizar com novos peers
                     for peer_host, peer_port in network.get_peers():
@@ -670,7 +668,7 @@ def start_client():
     try:
         ca_cert = server.get_ca_certificate()
         if ca_cert:
-            print("✓ CA Certificate obtained from server")
+            print("CA Certificate obtained from server")
         else:
             print("Could not get CA certificate")
     except Exception as e:
@@ -694,7 +692,7 @@ def init_p2p():
     #Inicia P2P após Flask estar pronto
     time.sleep(0.5)  # Espera Flask iniciar
     network.start()
-    print(f"\n✓ P2P Network started on port {network.port}\n")
+    print(f"\nP2P Network started on port {network.port}\n")
 
 # Cleanup ao sair
 atexit.register(lambda: network.stop())

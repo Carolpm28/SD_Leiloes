@@ -69,7 +69,7 @@ class Database:
     # ==================== AUCTIONS ====================
     
     def save_auction(self, auction: Auction, is_mine=False):
-        """Guarda um leilão na base de dados"""
+        #Guarda um leilão na base de dados
         max_retries = 5
         retry_delay = 0.1
         
@@ -177,7 +177,7 @@ class Database:
     # ==================== BIDS ====================
     
     def save_bid(self, bid: Bid, is_mine=False):
-        """Guarda um bid na base de dados"""
+        #Guarda um bid na base de dados
         max_retries = 5
         retry_delay = 0.1
         

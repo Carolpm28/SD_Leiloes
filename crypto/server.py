@@ -1,7 +1,5 @@
-"""
-Servidor Central do Sistema de Leilões P2P
-Todas as chaves guardadas na BD
-"""
+#Servidor Central do Sistema de Leilões P2P
+#Todas as chaves guardadas na BD
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 
@@ -37,7 +35,7 @@ SERVER_PORT = 9999
 # ============================================================================
 
 def init_db():
-    """Inicializa a base de dados"""
+    #Inicializa a base de dados
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
@@ -96,7 +94,7 @@ def init_db():
 
 
 def init_auction_ca():
-    """Inicializa a Certificate Authority"""
+    #Inicializa a Certificate Authority
     global SERVER_CERT_PEM, SERVER_PRIV_KEY, CA
     
     conn = sqlite3.connect(DB_PATH)
@@ -135,7 +133,7 @@ def init_auction_ca():
 
 
 def init_blind_signature_keys():
-    """Inicializa as chaves para blind signatures"""
+    #Inicializa as chaves para blind signatures
     global SERVER_BLIND_PRIV_KEY, SERVER_BLIND_PUB_KEY, BLIND_SIG
     
     conn = sqlite3.connect(DB_PATH)
@@ -154,9 +152,9 @@ def init_blind_signature_keys():
             blind_pub_key_pem,
             backend=default_backend()
         )
-        print("✓ Blind signature keys loaded from database")
+        print("Blind signature keys loaded from database")
     else:
-        print("  ↪ Generating new blind signature keys...")
+        print("Generating new blind signature keys...")
         
         SERVER_BLIND_PRIV_KEY = rsa.generate_private_key(
             public_exponent=65537,
@@ -181,12 +179,12 @@ def init_blind_signature_keys():
             (priv_key_pem, pub_key_pem)
         )
         conn.commit()
-        print("  ✓ Blind signature keys generated and stored")
+        print("Blind signature keys generated and stored")
     
     conn.close()
     
     BLIND_SIG = BlindSignature()
-    print("  ✓ Blind signature handler ready")
+    print("Blind signature handler ready")
 
 
 # ============================================================================
@@ -194,7 +192,7 @@ def init_blind_signature_keys():
 # ============================================================================
 
 async def handle_register(data):
-    """Regista novo utilizador e emite certificado"""
+    #Regista novo utilizador e emite certificado
     conn = None
     try:
         username = data['username']
@@ -316,7 +314,7 @@ async def handle_login(data):
             conn.close()
 
 async def handle_get_blind_token(data):
-    """Emite token cego para anonimato"""
+    #Emite token cego para anonimato
     conn = None
     try:
         blinded_msg = data['blinded_message']
@@ -369,7 +367,7 @@ async def handle_get_blind_token(data):
 
 
 async def handle_verify_token(data):
-    """Verifica se um token anónimo é válido"""
+    #Verifica se um token anónimo é válido
     conn = None
     try:
         token_hash = data['token_hash']
@@ -403,7 +401,7 @@ async def handle_verify_token(data):
 
 
 async def handle_get_users(data=None):
-    """Retorna lista de utilizadores registados"""
+    #Retorna lista de utilizadores registados
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
@@ -436,7 +434,7 @@ async def handle_get_users(data=None):
 
 
 async def handle_timestamp(data):
-    """Gera timestamp confiável para lance"""
+    #Gera timestamp confiável para lance
     conn = None
     try:
         bid_data = data['bid_data']
@@ -492,7 +490,7 @@ async def handle_timestamp(data):
 
 
 async def handle_get_ca_cert(data):
-    """Retorna certificado da CA"""
+    #Retorna certificado da CA
     return {
         'status': 'success',
         'ca_certificate': SERVER_CERT_PEM.decode()
@@ -544,7 +542,7 @@ HANDLERS = {
 # ============================================================================
 
 async def handle_client(reader, writer):
-    """Handle client connection"""
+    #Handle client connection
     addr = writer.get_extra_info('peername')
     print(f"→ Connection from {addr}")
     
@@ -591,7 +589,7 @@ async def handle_client(reader, writer):
 
 
 async def main():
-    """Função principal do servidor"""
+    #Função principal do servidor
     print("=" * 60)
     print("SERVIDOR DE LEILÕES P2P")
     print("=" * 60)
@@ -607,7 +605,7 @@ async def main():
     init_blind_signature_keys()
     
     print("\n" + "=" * 60)
-    print(f"✓ Server listening on {SERVER_HOST}:{SERVER_PORT}")
+    print(f"Server listening on {SERVER_HOST}:{SERVER_PORT}")
     print("=" * 60 + "\n")
     
     # Criar servidor TCP
@@ -623,13 +621,13 @@ async def main():
 
 
 def run_server():
-    """Entry point do servidor"""
+    #Entry point do servidor
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n\n✓ Server shutdown requested")
+        print("\n\nServer shutdown requested")
     except Exception as e:
-        print(f"\n✗ Server error: {e}")
+        print(f"\nServer error: {e}")
         import traceback
         traceback.print_exc()
 

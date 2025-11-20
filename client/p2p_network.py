@@ -8,7 +8,7 @@ from models import Auction, Bid, P2PMessage
 
 class P2PNetwork:
     def __init__(self, host='0.0.0.0', port=0, database=None):
-        # port=0 → o sistema escolhe uma porta livre automaticamente
+        # port=0. o sistema escolhe uma porta livre automaticamente
         self.db = database
         self.host = host
         self.port = port
@@ -156,7 +156,7 @@ class P2PNetwork:
         #Envia anúncio de leilão para todos os peers
         message = P2PMessage(
             msg_type="auction",
-            data=auction.to_dict() # Converte Auction → dict
+            data=auction.to_dict() # Converte Auction -> dict
         )
         #Enviar para todos os peers
         self._broadcast(message)
