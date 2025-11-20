@@ -162,10 +162,15 @@ def init_blind_signature_keys():
     print("  ✓ Blind signature handler ready")
 
     
-
+async def message_handler():
+    """Handler assíncrono para mensagens dos clientes"""
+    
+    
 
 def run_server():
     """Inicializa e corre o servidor de leilões"""
+
+
     try:
         loop = asyncio.get_event_loop()
         init_db()
