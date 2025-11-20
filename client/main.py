@@ -5,11 +5,13 @@ import os
 from datetime import datetime
 import threading  
 import time
+import atexit
 
 from database import Database
 from p2p_network import P2PNetwork
 from models import Auction, Bid
 from crypto_manager import CryptoManager
+from server_client import ServerClient  # ← ADICIONAR ISTO
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -20,6 +22,8 @@ CORS(app)  # Permite requests da frontend
 db = Database("auction_client.db")
 network = P2PNetwork(port=0, database=db)
 crypto = CryptoManager(server_url="http://localhost:5000")
+server = ServerClient()  # ← ADICIONAR ISTO - Cliente para servidor central
+
 # Estado global
 my_user_id = None  # ID do utilizador (definir depois)
 
@@ -148,13 +152,31 @@ def create_auction():
         return jsonify({"error": "Missing required fields"}), 400
     
     try:
-        # 1. PEDIR TOKEN ANÓNIMO
-        print("Requesting anonymous token...")
-        token, error = crypto.request_anonymous_token()
+        # 1. PEDIR TOKEN ANÓNIMO AO SERVIDOR CENTRAL
+        print("Requesting anonymous token from server...")
         
-        if error:
-            return jsonify({"error": f"Failed to get anonymous token: {error}"}), 500
+        # ← ALTERAR: Usar server_client em vez de crypto
+        # Gerar mensagem cega primeiro (usar BlindSignature do crypto)
+        from crypto.blind_signature import BlindSignature
+        bs = BlindSignature()
         
+        # Obter chave pública do servidor
+        blind_pub_key_pem = server.get_ca_certificate()  # Temporário, idealmente ter método separado
+        
+        # Criar token único
+        import uuid
+        token_message = f"auction_token_{uuid.uuid4()}"
+        
+        # Cegar mensagem
+        # blinded_msg, r, msg_hash = bs.blind(token_message, blind_public_key)
+        
+        # Por agora, simplificar - pedir token diretamente
+        token_response = server.get_blind_token(token_message)
+        
+        if not token_response:
+            return jsonify({"error": "Failed to get anonymous token"}), 500
+        
+        token = token_response.get('blind_signature')
         print(f"Anonymous token obtained: {token[:40]}...")
         
         # 2. Criar leilão
@@ -165,7 +187,7 @@ def create_auction():
             categoria=data.get('categoria')
         )
         
-        # 3. ADICIONAR TOKEN ANÓNIMO (em vez de assinatura normal)
+        # 3. ADICIONAR TOKEN ANÓNIMO
         auction.anonymous_token = token
         auction.seller_anonymous_id = crypto.get_anonymous_id()
         
@@ -266,32 +288,52 @@ def create_bid():
         return jsonify({"error": "Não pode dar bid no próprio leilão!"}), 400
     
     try:
-        # 1. PEDIR TOKEN ANÓNIMO
-        print("Requesting anonymous token for bid...")
-        token, error = crypto.request_anonymous_token()
+        # 1. PEDIR TOKEN ANÓNIMO AO SERVIDOR CENTRAL
+        print("Requesting anonymous token for bid from server...")
         
-        if error:
-            return jsonify({"error": f"Failed to get anonymous token: {error}"}), 500
+        import uuid
+        token_message = f"bid_token_{uuid.uuid4()}"
         
+        # ← ALTERAR: Usar server_client
+        token_response = server.get_blind_token(token_message)
+        
+        if not token_response:
+            return jsonify({"error": "Failed to get anonymous token"}), 500
+        
+        token = token_response.get('blind_signature')
         print(f"Anonymous token obtained: {token[:40]}...")
         
-        # 2. Criar bid
+        # 2. PEDIR TIMESTAMP CONFIÁVEL AO SERVIDOR
+        bid_data = f"{auction_id}|{bid_value}|{token_message}"
+        timestamp_response = server.request_timestamp(bid_data)
+        
+        if not timestamp_response:
+            return jsonify({"error": "Failed to get timestamp"}), 500
+        
+        timestamp = timestamp_response.get('timestamp')
+        timestamp_signature = timestamp_response.get('signature')
+        
+        print(f"Timestamp obtained: {timestamp}")
+        
+        # 3. Criar bid
         bid = Bid(
             auction_id=auction_id,
             value=bid_value
         )
         
-        # 3. ADICIONAR TOKEN ANÓNIMO
+        # 4. ADICIONAR TOKEN ANÓNIMO E TIMESTAMP
         bid.anonymous_token = token
         bid.bidder_anonymous_id = crypto.get_anonymous_id()
+        bid.timestamp = timestamp
+        bid.timestamp_signature = timestamp_signature
         
-        # 4. Guardar localmente (is_mine=True)
+        # 5. Guardar localmente (is_mine=True)
         db.save_bid(bid, is_mine=True)
         
-        # 5. Broadcast para a rede P2P
+        # 6. Broadcast para a rede P2P
         network.broadcast_bid(bid)
         
-        print(f"Bid broadcasted anonymously: €{bid.value}")
+        print(f"Bid broadcasted anonymously: €{bid.value} at {timestamp}")
         
         return jsonify(bid.to_dict()), 201
         
@@ -341,6 +383,33 @@ def add_peer():
     
     return jsonify({"message": "Peer added and sync requested"}), 201
 
+
+# ← NOVO ENDPOINT: Descobrir peers via servidor central
+@app.route('/api/peers/discover', methods=['POST'])
+def discover_peers():
+    """Descobre peers registados no servidor central"""
+    try:
+        users = server.get_users_list()
+        
+        if not users:
+            return jsonify({"message": "No users found", "added": 0}), 200
+        
+        added = 0
+        for user in users:
+            # Não adicionar a si próprio
+            if user.get('username') != crypto.username:
+                network.add_peer(user['ip'], user['port'])
+                added += 1
+        
+        return jsonify({
+            "message": f"Discovered {len(users)} users, added {added} peers",
+            "peers": users
+        }), 200
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/peers/<peer_id>/sync', methods=['POST'])
 def sync_with_peer(peer_id):
     #Pede sincronização a um peer específico
@@ -365,11 +434,12 @@ def get_info():
         "my_auctions_count": len(db.get_my_auctions())
     })
 
+
 # ==================== AUTENTICAÇÃO ====================
 
 @app.route('/api/auth/register', methods=['POST'])
-def register_user():
-    #Regista utilizador no servidor central
+def register_user_endpoint():
+    """Regista utilizador no servidor central"""
     data = request.json
     
     username = data.get('username')
@@ -378,28 +448,58 @@ def register_user():
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
     
-    # IP e porta deste cliente
-    ip = "localhost"  # TODO: Obter IP real
-    port = network.port
+    try:
+        # ← ALTERAR: Usar server_client
+        # Gerar chave pública
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.backends import default_backend
+        
+        # Gerar par de chaves (ou usar do crypto_manager)
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        public_key = private_key.public_key()
+        
+        public_key_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        
+        # Registar no servidor
+        response = server.register_user(
+            username=username,
+            public_key=public_key_pem,
+            ip='localhost',  # TODO: obter IP real
+            port=network.port
+        )
+        
+        if response.get('status') == 'success':
+            # Guardar info localmente
+            global my_user_id
+            my_user_id = response['user_id']
+            crypto.user_id = response['user_id']
+            crypto.username = username
+            
+            # TODO: Guardar certificado
+            
+            return jsonify({
+                "message": "User registered successfully",
+                "user_id": response['user_id'],
+                "username": username
+            }), 201
+        else:
+            return jsonify({"error": response.get('message', 'Registration failed')}), 400
     
-    # Registar via crypto_manager
-    success, message = crypto.register(username, password, ip, port)
-    
-    if success:
-        global my_user_id
-        my_user_id = crypto.user_id
-        return jsonify({
-            "message": message,
-            "user_id": crypto.user_id,
-            "username": crypto.username
-        }), 201
-    else:
-        return jsonify({"error": message}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/auth/login', methods=['POST'])
 def login_user():
-    #Faz login no servidor central
+    """Faz login no servidor central"""
     data = request.json
     
     username = data.get('username')
@@ -414,6 +514,39 @@ def login_user():
     if success:
         global my_user_id
         my_user_id = crypto.user_id
+        
+        # ← ADICIONAR ISTO: Descoberta automática após login bem-sucedido
+        try:
+            print(f"\n🔍 Discovering peers for user '{username}'...")
+            users = server.get_users_list()
+            
+            if users:
+                discovered = 0
+                for user in users:
+                    # Não adicionar a si próprio
+                    if user.get('username') != username and user.get('user_id') != my_user_id:
+                        network.add_peer(user['ip'], user['port'])
+                        discovered += 1
+                        print(f"  → Added peer: {user['username']} ({user['ip']}:{user['port']})")
+                
+                print(f"✓ Discovered {discovered} peers automatically\n")
+                
+                # Pedir sincronização de todos os peers
+                if discovered > 0:
+                    print("Requesting sync from all peers...")
+                    for peer_host, peer_port in network.get_peers():
+                        try:
+                            network.request_sync_from_peer(peer_host, peer_port)
+                            print(f"  → Sync requested from {peer_host}:{peer_port}")
+                        except Exception as e:
+                            print(f"  ✗ Sync failed: {e}")
+                    print("✓ Sync complete\n")
+            else:
+                print("ℹNo other peers found on server\n")
+        
+        except Exception as e:
+            print(f"Auto-discovery after login failed: {e}\n")
+        
         return jsonify({
             "message": message,
             "user_id": crypto.user_id,
@@ -423,10 +556,128 @@ def login_user():
         return jsonify({"error": message}), 401
 
 
+@app.route('/api/auth/register', methods=['POST'])
+def register_user_endpoint():
+    """Regista utilizador no servidor central"""
+    data = request.json
+    
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+    
+    try:
+        # Gerar chave pública
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.backends import default_backend
+        
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        public_key = private_key.public_key()
+        
+        public_key_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        
+        # Registar no servidor
+        response = server.register_user(
+            username=username,
+            public_key=public_key_pem,
+            ip='localhost',
+            port=network.port
+        )
+        
+        if response.get('status') == 'success':
+            # Guardar info localmente
+            global my_user_id
+            my_user_id = response['user_id']
+            crypto.user_id = response['user_id']
+            crypto.username = username
+            
+            # ← ADICIONAR ISTO APENAS se a tua interface fizer login automático após registo
+            # Se precisar de fazer login manual depois, NÃO adicionar isto aqui
+            # (deixa só no endpoint de login)
+            
+            # SE fizer login automático:
+            try:
+                print(f"\n🔍 Discovering peers for new user '{username}'...")
+                users = server.get_users_list()
+                
+                if users:
+                    discovered = 0
+                    for user in users:
+                        if user.get('user_id') != my_user_id:
+                            network.add_peer(user['ip'], user['port'])
+                            discovered += 1
+                            print(f"  → Added peer: {user['username']} ({user['ip']}:{user['port']})")
+                    
+                    print(f"✓ Discovered {discovered} peers\n")
+                    
+                    # Sincronização inicial
+                    if discovered > 0:
+                        for peer_host, peer_port in network.get_peers():
+                            try:
+                                network.request_sync_from_peer(peer_host, peer_port)
+                            except:
+                                pass
+            
+            except Exception as e:
+                print(f"⚠️  Auto-discovery after registration failed: {e}")
+            
+            return jsonify({
+                "message": "User registered successfully",
+                "user_id": response['user_id'],
+                "username": username
+            }), 201
+        else:
+            return jsonify({"error": response.get('message', 'Registration failed')}), 400
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/auth/status', methods=['GET'])
 def auth_status():
     #Verifica se utilizador está autenticado
     if crypto.user_id:
+        # Re-descobrir peers se pedido explicitamente
+        should_discover = request.args.get('discover') == 'true'
+        
+        if should_discover:
+            try:
+                print(f"\nRe-discovering peers for '{crypto.username}'...")
+                users = server.get_users_list()
+                discovered = 0
+                
+                for user in users:
+                    if user.get('user_id') != crypto.user_id:
+                        peer = (user['ip'], user['port'])
+                        # Só adicionar se ainda não estiver na lista
+                        if peer not in network.get_peers():
+                            network.add_peer(user['ip'], user['port'])
+                            discovered += 1
+                            print(f"  → New peer: {user['username']} ({user['ip']}:{user['port']})")
+                
+                if discovered > 0:
+                    print(f"✓ Re-discovered {discovered} new peers\n")
+                    
+                    # Sincronizar com novos peers
+                    for peer_host, peer_port in network.get_peers():
+                        try:
+                            network.request_sync_from_peer(peer_host, peer_port)
+                        except:
+                            pass
+                else:
+                    print("No new peers found\n")
+            
+            except Exception as e:
+                print(f"Re-discovery failed: {e}\n")
+        
         return jsonify({
             "authenticated": True,
             "user_id": crypto.user_id,
@@ -441,31 +692,39 @@ def auth_status():
 
 def start_client():
     #Inicia todos os componentes
+    print("=" * 60)
     print("AUCTION CLIENT")
+    print("=" * 60)
     
-    # NÃO iniciar P2P aqui!
-    # network.start()
+    # Obter certificado da CA ao iniciar
+    try:
+        ca_cert = server.get_ca_certificate()
+        if ca_cert:
+            print("✓ CA Certificate obtained from server")
+        else:
+            print("Could not get CA certificate")
+    except Exception as e:
+        print(f"Error getting CA certificate: {e}")
     
     print(f"\nAPI Server: http://localhost:5001")
     print(f"P2P Port: {network.port} (will start after Flask)")
-    print(f"\nPara adicionar peers, usa: POST /api/peers")
-    print("="*50 + "\n")
+    print(f"\nEndpoints:")
+    print("  POST /api/auth/register - Register user")
+    print("  POST /api/peers/discover - Discover peers from server")
+    print("  POST /api/peers - Add peer manually")
+    print("="*60 + "\n")
     
-    # 3. Iniciar API REST (Flask)
+    # Iniciar API REST (Flask)
     app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
 
 
 # ==================== P2P DELAYED START ====================
 
-import atexit
-import threading
-
 def init_p2p():
     #Inicia P2P após Flask estar pronto
-    import time
     time.sleep(0.5)  # Espera Flask iniciar
     network.start()
-    print(f"\nP2P Network started on port {network.port}\n")
+    print(f"\n✓ P2P Network started on port {network.port}\n")
 
 # Cleanup ao sair
 atexit.register(lambda: network.stop())
@@ -483,5 +742,3 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\n\nShutting down...")
         print("Goodbye!")
-
-

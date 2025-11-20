@@ -35,12 +35,13 @@ async function initializeApp() {
 
 async function checkAuthStatus() {
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/status`);
+        const response = await fetch(`${API_BASE_URL}/api/auth/status?discover=true`);
         const data = await response.json();
         
         if (data.authenticated) {
             // Utilizador está autenticado
-            console.log(`✓ Authenticated as ${data.username}`);
+            console.log(`Authenticated as ${data.username}`);
+            console.log('Peers re-discovered automatically');  
             updateUIForAuthenticatedUser(data.username);
         } else {
             // Não autenticado - mostrar botões de login/registo
@@ -648,7 +649,9 @@ async function handleLogin(e) {
         
         if (response.ok) {
             // Sucesso!
-            alert(`✓ Login bem-sucedido!\nBem-vindo de volta, ${data.username}!`);
+            console.log('Login successful');
+            console.log('Peers discovered automatically on server');
+            alert(`Login bem-sucedido!\nBem-vindo de volta, ${data.username}!`);
             
             // Reset form
             e.target.reset();
@@ -1365,3 +1368,4 @@ navigateTo = function(page) {
     }
     originalNavigateTo(page);
 };
+

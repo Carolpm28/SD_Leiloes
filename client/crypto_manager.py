@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
 from cryptography import x509
 import hashlib
+from server_client import ServerClient
 
 
 class CryptoManager:
@@ -32,6 +33,41 @@ class CryptoManager:
         # Carregar certificado CA do servidor
         self._fetch_ca_certificate()
         self._fetch_blind_public_key()
+        self.server_client = ServerClient()
+    
+    def register_with_server(self, username, ip, port):
+        #Regista este cliente no servidor central
+        # Obter chave pública
+        public_key_pem = self.public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        
+        # Registar
+        response = self.server_client.register_user(
+            username=username,
+            public_key=public_key_pem,
+            ip=ip,
+            port=port
+        )
+        
+        if response['status'] == 'success':
+            # Guardar certificado
+            self.certificate = response['certificate']
+            self.ca_certificate = response['ca_certificate']
+            return True
+        else:
+            print(f"Erro no registo: {response['message']}")
+            return False
+    
+    def get_timestamp_for_bid(self, auction_id, bid_value, token):
+        #Obtém timestamp confiável do servidor
+        bid_data = f"{auction_id}|{bid_value}|{token}"
+        return self.server_client.request_timestamp(bid_data)
+    
+    def discover_peers(self):
+        #Descobre outros utilizadores na rede
+        return self.server_client.get_users_list()
     
     # ==================== SETUP ====================
     
