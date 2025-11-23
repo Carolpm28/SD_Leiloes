@@ -13,6 +13,7 @@ from cryptography.hazmat.backends import default_backend
 
 from crypto.cert_auth import AuctionCA
 from crypto.blind_signature import BlindSignature
+from crypto.timestamp_service import TimestampService
 
 DB_PATH = 'server.db'
 SERVER_CERT_PEM = None
@@ -21,6 +22,7 @@ SERVER_BLIND_PRIV_KEY = None
 SERVER_BLIND_PUB_KEY = None
 CA = None
 BLIND_SIG = None
+TSA_SERVICE = None
 
 # Configuração do servidor
 SERVER_HOST = '0.0.0.0'  # IMPORTANTE: aceita conexões externas
@@ -68,12 +70,19 @@ def init_db():
     
     # Nova tabela para timestamps
     c.execute('''
+            CREATE TABLE IF NOT EXISTS tsa_keys (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                tsa_priv_key_pem BLOB,
+                tsa_pub_key_pem BLOB
+            )
+        ''')
+    c.execute('''
         CREATE TABLE IF NOT EXISTS timestamps (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bid_hash TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            signature TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            item_hash TEXT NOT NULL,
+            payload BLOB NOT NULL,
+            signature BLOB NOT NULL,
+            issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -171,7 +180,11 @@ def init_blind_signature_keys():
     BLIND_SIG = BlindSignature()
     print("  ✓ Blind signature handler ready")
 
-
+def init_timestamp_service():
+    """Inicializa o serviço de timestamps"""
+    global TSA_SERVICE
+    TSA_SERVICE = TimestampService(db_path=DB_PATH)
+    print("✓ Timestamp service ready")
 # ============================================================================
 # HANDLERS DAS MENSAGENS
 # ============================================================================
@@ -270,41 +283,13 @@ async def handle_get_users(data):
 async def handle_timestamp(data):
     """Gera timestamp confiável para lance"""
     try:
-        bid_data = data['bid_data']
+        bid_hash = data['bid_hash']
         
-        # Criar timestamp
-        timestamp = datetime.now().isoformat()
-        message = f"{bid_data}|{timestamp}"
-        
-        # Assinar
-        signature = SERVER_PRIV_KEY.sign(
-            message.encode(),
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        
-        # Guardar na BD
-        digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
-        digest.update(bid_data.encode())
-        bid_hash = digest.finalize().hex()
-        
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO timestamps (bid_hash, timestamp, signature)
-            VALUES (?, ?, ?)
-        ''', (bid_hash, timestamp, signature.hex()))
-        conn.commit()
-        conn.close()
+        res = await asyncio.to_thread(TSA_SERVICE.issue_timestamp, bid_hash, 'bid')
         
         return {
             'status': 'success',
-            'timestamp': timestamp,
-            'signature': signature.hex(),
-            'ca_certificate': SERVER_CERT_PEM.decode()
+            'timestamp': res
         }
     
     except Exception as e:
