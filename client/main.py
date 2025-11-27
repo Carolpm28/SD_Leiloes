@@ -11,7 +11,11 @@ from database import Database
 from p2p_network import P2PNetwork
 from models import Auction, Bid
 from crypto_manager import CryptoManager
-from server_client import ServerClient  
+from server_client import ServerClient 
+
+import signal
+import sys
+import atexit
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -21,7 +25,7 @@ CORS(app)  # Permite requests da frontend
 # Componentes
 db = Database("auction_client.db")
 network = P2PNetwork(port=0, database=db)
-crypto = CryptoManager(server_url="http://localhost:5000")
+crypto = CryptoManager()
 server = ServerClient()  
 
 # Estado global
@@ -694,14 +698,43 @@ def init_p2p():
     network.start()
     print(f"\nP2P Network started on port {network.port}\n")
 
-# Cleanup ao sair
-atexit.register(lambda: network.stop())
-atexit.register(lambda: db.close())
 
+
+
+def cleanup():
+    #Cleanup resources before shutting down
+    print('\nShutting down gracefully...')
+    
+    # Fecha a base de dados
+    if 'db' in globals() and db:
+        try:
+            db.close()
+            print('Database closed')
+        except Exception as e:
+            print(f'Error closing database: {e}')
+    
+    # Para o P2P network (corrigido de p2p_node para network)
+    if 'network' in globals() and network:
+        try:
+            network.stop()
+            print('P2P network stopped')
+        except Exception as e:
+            print(f'Error stopping P2P network: {e}')
+    
+    print('Goodbye!')
+
+def signal_handler(sig, frame):
+    #Handle CTRL+C and other termination signals
+    cleanup()
+    sys.exit(0)
 
 # ==================== MAIN ====================
 
 if __name__ == '__main__':
+    #Regista cleanup para shutdown graceful
+    signal.signal(signal.SIGINT, signal_handler)   # CTRL+C
+    signal.signal(signal.SIGTERM, signal_handler)  
+    
     # Registra P2P para iniciar depois
     threading.Timer(1.0, init_p2p).start()
     
@@ -709,4 +742,4 @@ if __name__ == '__main__':
         start_client()
     except KeyboardInterrupt:
         print("\n\nShutting down...")
-        print("Goodbye!")
+        cleanup()  #Chama cleanup explicitamente

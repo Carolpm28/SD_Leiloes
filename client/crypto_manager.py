@@ -13,8 +13,7 @@ from server_client import ServerClient
 class CryptoManager:
     #Gestor de criptografia do cliente. Comunica com servidor para obter certificados e tokens anónimos
     
-    def __init__(self, server_url="http://localhost:5000", keys_dir="keys"):
-        self.server_url = server_url
+    def __init__(self, keys_dir="keys"):
         self.keys_dir = keys_dir
         self.backend = default_backend()
         
@@ -31,34 +30,35 @@ class CryptoManager:
         os.makedirs(keys_dir, exist_ok=True)
         
         # Carregar certificado CA do servidor
-        self._fetch_ca_certificate()
-        self._fetch_blind_public_key()
+        self._ca_cert_loaded = False
+        self._blind_key_loaded = False
         self.server_client = ServerClient()
+
+    # ==================== LAZY LOADING ====================
     
-    def register_with_server(self, username, ip, port):
-        #Regista este cliente no servidor central
-        # Obter chave pública
-        public_key_pem = self.public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode()
-        
-        # Registar
-        response = self.server_client.register_user(
-            username=username,
-            public_key=public_key_pem,
-            ip=ip,
-            port=port
-        )
-        
-        if response['status'] == 'success':
-            # Guardar certificado
-            self.certificate = response['certificate']
-            self.ca_certificate = response['ca_certificate']
-            return True
-        else:
-            print(f"Erro no registo: {response['message']}")
-            return False
+    def _ensure_ca_certificate(self):
+        #Carrega certificado CA apenas quando necessário
+        if not self._ca_cert_loaded:
+            self._fetch_ca_certificate()
+            self._ca_cert_loaded = True
+    
+    def _ensure_blind_public_key(self):
+        #Carrega chave pública blind apenas quando necessário
+        if not self._blind_key_loaded:
+            self._fetch_blind_public_key()
+            self._blind_key_loaded = True
+
+    def get_ca_certificate(self):
+        #Retorna certificado CA (lazy loading)
+        self._ensure_ca_certificate()
+        return self.ca_cert
+    
+    def get_blind_public_key(self):
+        #Retorna chave pública blind (lazy loading)
+        self._ensure_blind_public_key()
+        return self.blind_pub_key
+    
+
     
     def get_timestamp_for_bid(self, auction_id, bid_value, token):
         #Obtém timestamp confiável do servidor
@@ -72,12 +72,12 @@ class CryptoManager:
     # ==================== SETUP ====================
     
     def _fetch_ca_certificate(self):
-        #Obtém certificado da CA do servidor
+        #Obtém certificado da CA do servidor via ServerClient"""
         try:
-            response = requests.get(f"{self.server_url}/api/ca/certificate")
-            if response.status_code == 200:
+            ca_cert_pem = self.server_client.get_ca_certificate()
+            if ca_cert_pem:
                 self.ca_cert = x509.load_pem_x509_certificate(
-                    response.json()['certificate'].encode(),
+                    ca_cert_pem.encode(),
                     self.backend
                 )
                 print("CA certificate loaded")
@@ -85,12 +85,13 @@ class CryptoManager:
             print(f"Could not fetch CA certificate: {e}")
     
     def _fetch_blind_public_key(self):
-        #Obtém chave pública para blind signatures
+        #Obtém chave pública para blind signatures via ServerClient
         try:
-            response = requests.get(f"{self.server_url}/api/blind/public_key")
-            if response.status_code == 200:
+            # Pedir token só para obter a chave pública
+            response = self.server_client.get_blind_token("dummy_message")
+            if response and 'blind_public_key' in response:
                 self.blind_pub_key = serialization.load_pem_public_key(
-                    response.json()['public_key'].encode(),
+                    response['blind_public_key'].encode(),
                     self.backend
                 )
                 print("Blind signature public key loaded")
@@ -100,11 +101,11 @@ class CryptoManager:
     # ==================== REGISTO/LOGIN ====================
     
     def register(self, username, password, ip, port):
-        #Regista utilizador no servidor
-        #1. Gera par de chaves RSA
-        #2. Envia chave pública ao servidor
-        #3. Recebe certificado X.509 assinado pela CA
-        
+        """Regista utilizador no servidor
+        1. Gera par de chaves RSA
+        2. Envia chave pública ao servidor
+        3. Recebe certificado X.509 assinado pela CA
+        """
         try:
             # Gerar par de chaves
             self.private_key = rsa.generate_private_key(
@@ -120,20 +121,17 @@ class CryptoManager:
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ).decode()
             
-            # Enviar ao servidor
-            response = requests.post(f"{self.server_url}/api/register", json={
-                "username": username,
-                "password": password,
-                "public_key": pub_key_pem,
-                "ip": ip,
-                "port": port
-            })
+            response = self.server_client.register_user(
+                username=username,
+                public_key=pub_key_pem,
+                ip=ip,
+                port=port
+            )
             
-            if response.status_code == 201:
-                data = response.json()
-                self.user_id = data['user_id']
+            if response.get('status') == 'success':
+                self.user_id = response['user_id']
                 self.username = username
-                self.certificate = data['certificate']
+                self.certificate = response['certificate']
                 
                 # Guardar chaves localmente
                 self._save_keys(username)
@@ -141,12 +139,12 @@ class CryptoManager:
                 print(f"User {username} registered successfully")
                 return True, "Registration successful"
             else:
-                return False, response.json().get('error', 'Registration failed')
+                error_msg = response.get('message', 'Registration failed')
+                return False, error_msg
                 
         except Exception as e:
             print(f"Registration error: {e}")
             return False, str(e)
-    
     def login(self, username, password):
         #faz login no servidor
         try:
@@ -176,30 +174,27 @@ class CryptoManager:
     
     def request_anonymous_token(self):
         #Pede token anónimo ao servidor usando blind signatures
-
+        self._ensure_blind_public_key()
+        
         if not self.blind_pub_key:
             return None, "Blind public key not available"
         
         try:
-            # 1. Gerar mensagem aleatória
             import secrets
             message = f"ANON_TOKEN_{secrets.token_hex(16)}"
             
-            # 2. Blind (cegar mensagem)
+            # Blind (cegar mensagem)
             blinded_msg, r, msg_hash = self._blind_message(message)
             
-            # 3. Enviar ao servidor
-            response = requests.post(f"{self.server_url}/api/blind/sign", json={
-                "blinded_message": str(blinded_msg)
-            })
+            response = self.server_client.get_blind_token(str(blinded_msg))
             
-            if response.status_code == 200:
-                blinded_sig = int(response.json()['blinded_signature'])
+            if response and response.get('status') == 'success':
+                blinded_sig = int(response['blind_signature'], 16)  # hex to int
                 
-                # 4. Unblind (remover cegueira)
+                # Unblind
                 signature = self._unblind_signature(blinded_sig, r)
                 
-                # 5. Criar token
+                # Criar token
                 token = self._create_token(msg_hash, signature)
                 
                 print("Anonymous token obtained")

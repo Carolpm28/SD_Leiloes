@@ -1,0 +1,15 @@
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Keys directory (não committar chaves privadas!)
+keys/
+*.pem
+
+

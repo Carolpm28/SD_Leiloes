@@ -14,6 +14,9 @@ class Database:
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
         self.conn.row_factory = sqlite3.Row  # Permite aceder por nome de coluna
+        # Ativa WAL mode para melhor concorrência e prevenir corrupção
+        self.conn.execute('PRAGMA journal_mode=WAL')
+        self.conn.execute('PRAGMA synchronous=NORMAL')
         self._create_tables()
     
     def _create_tables(self):
@@ -300,4 +303,10 @@ class Database:
     
     def close(self):
         #Fecha a conexão à base de dados
-        self.conn.close()
+        if self.conn:
+            try:
+                self.conn.commit()  # Guarda alterações pendentes
+                self.conn.close()
+                self.conn = None
+            except Exception as e:
+                print(f"Error closing database: {e}")

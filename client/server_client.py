@@ -4,7 +4,7 @@ import json
 from typing import Optional, Dict, List
 
 # Configuração do servidor
-SERVER_HOST = '10.227.108.98'
+SERVER_HOST = 'localhost'
 SERVER_PORT = 9999
 
 class ServerClient:
