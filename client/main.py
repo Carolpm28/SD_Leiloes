@@ -1,4 +1,7 @@
 #Aplicação principal do cliente de leilões. Coordena: Database, P2P Network, Crypto e API REST
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import os
@@ -6,6 +9,9 @@ from datetime import datetime
 import threading  
 import time
 import atexit
+import hashlib  
+import secrets  
+import uuid     
 
 from database import Database
 from p2p_network import P2PNetwork
@@ -16,6 +22,12 @@ from server_client import ServerClient
 import signal
 import sys
 import atexit
+
+from crypto.blind_signature import BlindSignature
+from crypto.keys import KeyManager
+
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -33,27 +45,63 @@ my_user_id = None  # ID do utilizador (definir depois)
 
 print("Starting Auction Client...")
 
+# Carregar chave pública do certificado CA
+try:
+    
+    # Caminho para o certificado CA
+    ca_cert_path = os.path.join(os.path.dirname(__file__), '..', 'ca_cert.pem')
+    
+    if os.path.exists(ca_cert_path):
+        # Carregar certificado X.509
+        with open(ca_cert_path, 'rb') as f:
+            cert_data = f.read()
+        
+        cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+        public_key = cert.public_key()  # Extrair chave pública
+        
+        bs = BlindSignature()
+        print("Blind signature verification ready")
+    else:
+        print(f"CA certificate not found at: {ca_cert_path}")
+        print("Token verification disabled")
+        bs = None
+        public_key = None
+        
+except Exception as e:
+    print(f"Error loading CA certificate: {e}")
+    import traceback
+    traceback.print_exc()
+    bs = None
+    public_key = None
 
 # ==================== CALLBACKS P2P ====================
 
 def on_auction_received(auction: Auction):
     #Callback quando recebe novo leilão via P2P
-    print(f"Received auction: {auction.item}")
+    # Verifica o token anónimo recebido
+    if not bs.verify_token(auction.anonymous_token, public_key):
+        print("Token inválido! Auction rejeitado.")
+        return  # Não grava no DB
     
     # Guardar na base de dados (is_mine=False porque veio da rede)
     db.save_auction(auction, is_mine=False)
+    print(f"Auction recebido e verificado: {auction.item}")
     
-    # TODO: Verificar assinatura com crypto
 
 
 def on_bid_received(bid: Bid):
     #Callback quando recebe novo bid via P2P
-    print(f"Received bid: €{bid.value:.2f} for auction {bid.auction_id}")
+    # Verifica o token anónimo recebido
+    if not bs.verify_token(bid.anonymous_token, public_key):
+        print("Token inválido! Auction rejeitado.")
+        return  # Não grava no DB
+    
     
     # Guardar na base de dados
     db.save_bid(bid, is_mine=False)
+    print(f"Bid recebido e verificado: €{bid.value:.2f} para auction {bid.auction_id}")
+ 
     
-    # TODO: Verificar assinatura com crypto
 
 
 def on_sync_received(sync_data):
@@ -164,21 +212,27 @@ def create_auction():
         print("\nRequesting anonymous token from server...")
         
         # Gerar mensagem para blind signature
-        import secrets
-        import hashlib
         
         message = f"AUCTION_{secrets.token_hex(16)}"
         msg_hash = hashlib.sha256(message.encode()).hexdigest()
         
-        # Pedir token cego ao servidor
-        token_response = server.get_blind_token(msg_hash)
-        
+        # Cegar a mensagem ANTES de enviar
+        blinded_msg, r, m_hash = bs.blind(message, public_key)
+
+        # Pedir assinatura cega ao servidor
+        token_response = server.get_blind_token(str(blinded_msg))  # Envia número cego
+
         if token_response:
-            anonymous_token = token_response.get('blind_signature', msg_hash[:32])
-            print(f"Anonymous token obtained: {anonymous_token[:20]}...")
+            blind_sig = int(token_response['blind_signature'])
+            
+            # Remover cegueira
+            anonymous_token = bs.unblind(blind_sig, r, public_key)
+            anonymous_token = str(anonymous_token)  # Guardar como string
+            
+            print(f"Anonymous token: {anonymous_token[:40]}...")
         else:
-            anonymous_token = msg_hash[:32]
-            print(f"Using fallback token: {anonymous_token[:20]}...")
+            anonymous_token = str(msg_hash)[:32]
+            print(f"Fallback token: {anonymous_token[:20]}...")
         
 
         auction = Auction(
@@ -295,18 +349,24 @@ def create_bid():
     try:
         # 1. PEDIR TOKEN ANÓNIMO AO SERVIDOR CENTRAL
         print("Requesting anonymous token for bid from server...")
-        
-        import uuid
-        token_message = f"bid_token_{uuid.uuid4()}"
-        
 
-        token_response = server.get_blind_token(token_message)
+        token_message = f"bid_token_{uuid.uuid4()}"
+        msg_hash = int(hashlib.sha256(token_message.encode()).hexdigest(), 16)  # STRING -> INT
+
+        # Cegar a mensagem
+        blinded_msg, r, m_hash = bs.blind(token_message, public_key)
+
+        # Pedir assinatura cega ao servidor
+        token_response = server.get_blind_token(str(blinded_msg))
         
         if not token_response:
             return jsonify({"error": "Failed to get anonymous token"}), 500
         
-        token = token_response.get('blind_signature')
-        print(f"Anonymous token obtained: {token[:40]}...")
+        # Remover cegueira
+        blind_sig = int(token_response['blind_signature'])
+        anonymous_token = bs.unblind(blind_sig, r, public_key)
+        anonymous_token = str(anonymous_token)
+        print(f"Anonymous bid token: {anonymous_token[:40]}...")
         
         # 2. PEDIR TIMESTAMP CONFIÁVEL AO SERVIDOR
         bid_data = f"{auction_id}|{bid_value}|{token_message}"
@@ -327,7 +387,7 @@ def create_bid():
         )
         
         # 4. ADICIONAR TOKEN ANÓNIMO E TIMESTAMP
-        bid.anonymous_token = token
+        bid.anonymous_token = anonymous_token
         bid.bidder_anonymous_id = crypto.get_anonymous_id()
         bid.timestamp = timestamp
         bid.timestamp_signature = timestamp_signature

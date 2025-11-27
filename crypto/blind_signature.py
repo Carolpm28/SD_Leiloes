@@ -175,10 +175,11 @@ class BlindSignature:
         return message_hash, signature
     
     def verify_token(self, token, public_key):
-        """
-        Verifica se um token é válido
-        (usado pelo servidor ao receber anúncios/bids)
-        """
+        #Verifica se um token é válido (usado pelo servidor ao receber anúncios/bids)
+        # Extrai a hash da mensagem e a assinatura do token.
+        # Usa a chave pública do servidor para calcular m_recovered = assinatura^e mod n.
+        # Compara m_recovered com a hash da mensagem original.
+        # Se forem iguais, o token é válido (foi assinado pelo servidor). 
         try:
             message_hash, signature = self.token_to_signature(token)
             
