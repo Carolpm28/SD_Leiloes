@@ -35,7 +35,7 @@ class ServerClient:
     # ========== Funções de autenticação ==========
     
     def register_user(self, username: str, public_key: str, 
-                     ip: str, port: int) -> dict:
+                     ip: str, port: int, password: str) -> dict:
         """
         Regista novo utilizador no servidor
         
@@ -56,7 +56,8 @@ class ServerClient:
             'username': username,
             'public_key': public_key,
             'ip': ip,
-            'port': port
+            'port': port,
+            'password': password
         })
     
     def login_user(self, username, password):

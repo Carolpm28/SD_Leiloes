@@ -3,6 +3,7 @@
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 
+import bcrypt
 import asyncio
 import json
 import sqlite3
@@ -44,6 +45,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
             public_key TEXT NOT NULL,
             ip TEXT NOT NULL,
             port INTEGER NOT NULL
@@ -196,9 +198,13 @@ async def handle_register(data):
     conn = None
     try:
         username = data['username']
+        password = data['password']
         pub_key_pem = data['public_key']
         ip = data['ip']
         port = data['port']
+        
+        #Hash da password
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         
         # Gerar user_id
         digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
@@ -208,10 +214,11 @@ async def handle_register(data):
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
         c = conn.cursor()
         
+        #Inserir com password_hash
         c.execute('''
-            INSERT INTO users (user_id, username, public_key, ip, port)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, username, pub_key_pem, ip, port))
+            INSERT INTO users (user_id, username, password_hash, public_key, ip, port)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, username, password_hash.decode('utf-8'), pub_key_pem, ip, port))
         conn.commit()
         
         # Converter PEM para objeto
@@ -224,7 +231,6 @@ async def handle_register(data):
         # Emitir certificado
         cert_pem = CA.issue_certificate(user_id, username, user_public_key)
         
-        # ← VERIFICAR TIPO
         if isinstance(cert_pem, bytes):
             cert_str = cert_pem.decode()
         else:
@@ -259,14 +265,14 @@ async def handle_login(data):
     conn = None
     try:
         username = data['username']
-        password = data['password']  # TODO: verificar password hash
+        password = data['password']
         
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
         c = conn.cursor()
         
-        # procurar utilizador
+        #Procura o user_id, password_hash e public_key
         c.execute('''
-            SELECT user_id, public_key FROM users WHERE username = ?
+            SELECT user_id, password_hash, public_key FROM users WHERE username = ?
         ''', (username,))
         
         row = c.fetchone()
@@ -274,7 +280,11 @@ async def handle_login(data):
         if not row:
             return {'status': 'error', 'message': 'User not found'}
         
-        user_id, pub_key_pem = row
+        user_id, password_hash, pub_key_pem = row
+        
+        #Verificar password
+        if not bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8')):
+            return {'status': 'error', 'message': 'Invalid password'}
         
         # Converter PEM para objeto de chave pública
         from cryptography.hazmat.primitives import serialization
@@ -286,7 +296,6 @@ async def handle_login(data):
         # Emitir novo certificado
         cert_pem = CA.issue_certificate(user_id, username, user_public_key)
         
-        # ← VERIFICAR SE É STRING OU BYTES
         if isinstance(cert_pem, bytes):
             cert_str = cert_pem.decode()
         else:
@@ -307,7 +316,7 @@ async def handle_login(data):
     except Exception as e:
         print(f"  Login error: {e}")
         import traceback
-        traceback.print_exc()  # ← DEBUG detalhado
+        traceback.print_exc()
         return {'status': 'error', 'message': str(e)}
     finally:
         if conn:
@@ -317,24 +326,21 @@ async def handle_get_blind_token(data):
     #Emite token cego para anonimato
     conn = None
     try:
-        blinded_msg = data['blinded_message']
+        # 1. Receber mensagem cega como STRING (JSON não suporta int grande)
+        blinded_msg_str = data['blinded_message']
         
-        # Assinar diretamente com a chave privada
-        signature = SERVER_BLIND_PRIV_KEY.sign(
-            blinded_msg.encode('utf-8'),
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
+        # 2. Converter STRING -> INT
+        blinded_msg = int(blinded_msg_str)
         
-        # Guardar hash do token
+        # 3. Usar a classe BlindSignature correta
+        blinded_sig = BLIND_SIG.blind_sign(blinded_msg, SERVER_BLIND_PRIV_KEY)
+        
+        # 4. Guardar hash do token (para tracking)
         digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
-        digest.update(blinded_msg.encode())
+        digest.update(blinded_msg_str.encode())
         token_hash = digest.finalize().hex()
         
-        # Guardar na BD com retry
+        # 5. Guardar na BD
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -350,9 +356,10 @@ async def handle_get_blind_token(data):
                 import time
                 time.sleep(0.1)
         
+        # 6. Retornar como STRING (para JSON)
         return {
             'status': 'success',
-            'blind_signature': signature.hex(),
+            'blind_signature': str(blinded_sig),  # INT -> STRING
             'blind_public_key': SERVER_BLIND_PUB_KEY.public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -360,6 +367,9 @@ async def handle_get_blind_token(data):
         }
     
     except Exception as e:
+        print(f"Blind token error: {e}")
+        import traceback
+        traceback.print_exc()
         return {'status': 'error', 'message': str(e)}
     finally:
         if conn:

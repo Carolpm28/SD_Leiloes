@@ -561,7 +561,8 @@ def register_user_endpoint():
             username=username,
             public_key=public_key_pem,
             ip=my_ip,  
-            port=network.port
+            port=network.port,
+            password=password
         )
         
         if response.get('status') == 'success':
