@@ -28,6 +28,7 @@ from crypto.keys import KeyManager
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -36,12 +37,13 @@ CORS(app)  # Permite requests da frontend
 
 # Componentes
 db = Database("auction_client.db")
-network = P2PNetwork(port=0, database=db)
+network = P2PNetwork(port=6000, database=db)
 crypto = CryptoManager()
 server = ServerClient()  
 
 # Estado global
 my_user_id = None  # ID do utilizador (definir depois)
+server_blind_pub_key = None
 
 print("Starting Auction Client...")
 
@@ -67,6 +69,7 @@ try:
         bs = None
         public_key = None
         
+        
 except Exception as e:
     print(f"Error loading CA certificate: {e}")
     import traceback
@@ -74,32 +77,116 @@ except Exception as e:
     bs = None
     public_key = None
 
+
+def get_or_update_blind_key():
+    """Obtém a chave pública de Blind Signature do servidor se ainda não existir"""
+    global server_blind_pub_key  # <--- Fundamental para aceder à variável global
+    
+    # Se já tivermos a chave, não precisamos de pedir novamente
+    if server_blind_pub_key is not None:
+        return True
+
+    print("Fetching Server Blind Public Key...")
+    try:
+        # Envia pedido 'get_blind_key'
+        response = server.send_request({'action': 'get_blind_key'})
+        print(f"DEBUG - RESPOSTA DO SERVIDOR: {response}")
+        
+        if response and response.get('status') == 'success':
+            key_pem = response['blind_public_key'].encode()
+            server_blind_pub_key = serialization.load_pem_public_key(
+                key_pem, 
+                backend=default_backend()
+            )
+            print("Server Blind Key loaded successfully.")
+            return True
+        else:
+            print("Failed to get blind key from server response")
+            return False
+    except Exception as e:
+        print(f"Error fetching blind key: {e}")
+        return False
+    
 # ==================== CALLBACKS P2P ====================
 
 def on_auction_received(auction: Auction):
-    #Callback quando recebe novo leilão via P2P
-    # Verifica o token anónimo recebido
-    if not bs.verify_token(auction.anonymous_token, public_key):
-        print("Token inválido! Auction rejeitado.")
-        return  # Não grava no DB
+    # Debug: ver formato do token
+    print(f"Token recebido (primeiros 100 chars): {auction.anonymous_token[:100] if auction.anonymous_token else 'None'}...")
     
-    # Guardar na base de dados (is_mine=False porque veio da rede)
+    # 1. GARANTIR QUE TEMOS A CHAVE DE VERIFICAÇÃO (Blind Key)
+    # Se o PC2 acabou de ligar, pode ainda não ter pedido esta chave ao servidor
+    if not get_or_update_blind_key():
+        print("Impossível verificar: Falha ao obter chave pública do servidor")
+        return
+
+    # 2. VERIFICAR USANDO A server_blind_pub_key
+    if bs and server_blind_pub_key and auction.anonymous_token:
+        try:
+            if ':' not in auction.anonymous_token:
+                print(f"Token sem ':' - formato inválido: {type(auction.anonymous_token)}")
+            else:
+                # MUDANÇA AQUI: Usa server_blind_pub_key em vez de public_key
+                if not bs.verify_token(auction.anonymous_token, server_blind_pub_key):
+                    print("Token inválido! Auction rejeitado.")
+                    return
+                print("Token verificado com sucesso")
+        except Exception as e:
+            print(f"Erro na verificação do token: {e}")
+            import traceback
+            traceback.print_exc()
+    
     db.save_auction(auction, is_mine=False)
-    print(f"Auction recebido e verificado: {auction.item}")
-    
+    print(f"Auction recebido: {auction.item}")
 
 
 def on_bid_received(bid: Bid):
-    #Callback quando recebe novo bid via P2P
-    # Verifica o token anónimo recebido
-    if not bs.verify_token(bid.anonymous_token, public_key):
-        print("Token inválido! Auction rejeitado.")
-        return  # Não grava no DB
+    # CORREÇÃO: Declarar global logo no início para evitar o SyntaxError
+    global server_blind_pub_key
     
+    print(f"Bid token (primeiros 100 chars): {bid.anonymous_token[:100] if bid.anonymous_token else 'None'}...")
     
-    # Guardar na base de dados
+    # 1. Garantir que temos uma chave para tentar verificar
+    if not get_or_update_blind_key():
+        print("Impossível verificar: Falha ao obter chave pública do servidor")
+        return
+
+    # 2. Tentar verificar
+    if bs and server_blind_pub_key and bid.anonymous_token:
+        try:
+            if ':' not in bid.anonymous_token:
+                print(f"Token sem ':' - formato: {type(bid.anonymous_token)}")
+                return
+
+            # Tenta verificar com a chave atual
+            is_valid = bs.verify_token(bid.anonymous_token, server_blind_pub_key)
+            
+            # Se falhar, a chave pode estar obsoleta (Server reiniciou). Forçamos refresh.
+            if not is_valid:
+                print("Verificação falhou. A tentar atualizar a chave do servidor...")
+                
+                # Força a função get_or_update a ir buscar nova chave
+                server_blind_pub_key = None  
+                
+                if get_or_update_blind_key():
+                    # Tenta verificar novamente com a chave fresca
+                    is_valid = bs.verify_token(bid.anonymous_token, server_blind_pub_key)
+                    if is_valid:
+                        print("Sucesso após atualização da chave!")
+            
+            if not is_valid:
+                print("Token inválido (mesmo após refresh)! Bid rejeitado.")
+                return
+                
+            print("Token verificado com sucesso")
+
+        except Exception as e:
+            print(f"Erro: {e}")
+            import traceback
+            traceback.print_exc()
+            return # Se deu erro, não guarda
+    
     db.save_bid(bid, is_mine=False)
-    print(f"Bid recebido e verificado: €{bid.value:.2f} para auction {bid.auction_id}")
+    print(f"Bid recebido: €{bid.value:.2f}")
  
     
 
@@ -192,7 +279,7 @@ def get_my_auctions():
 
 @app.route('/api/auctions', methods=['POST'])
 def create_auction():
-    #Cria novo leilão com anonimato
+    # Cria novo leilão com anonimato e Blind Signature corrigida
     
     # Validar autenticação
     if not crypto.user_id:
@@ -211,30 +298,35 @@ def create_auction():
     try:
         print("\nRequesting anonymous token from server...")
         
-        # Gerar mensagem para blind signature
-        
+        # 1. Garantir que temos a chave pública correta do servidor
+        if not get_or_update_blind_key():
+             return jsonify({"error": "Could not obtain server blind key"}), 500
+
+        # 2. Gerar mensagem para o token
         message = f"AUCTION_{secrets.token_hex(16)}"
-        msg_hash = hashlib.sha256(message.encode()).hexdigest()
         
-        # Cegar a mensagem ANTES de enviar
-        blinded_msg, r, m_hash = bs.blind(message, public_key)
+        # 3. Cegar a mensagem usando a chave de BLIND SIGNATURE (e não a da CA)
+        # O 'server_blind_pub_key' garante que o módulo matemático n é compatível
+        blinded_msg, r, m_hash = bs.blind(message, server_blind_pub_key)
 
-        # Pedir assinatura cega ao servidor
-        token_response = server.get_blind_token(str(blinded_msg))  # Envia número cego
+        # 4. Pedir assinatura cega ao servidor (envia o número cego como string)
+        token_response = server.get_blind_token(str(blinded_msg)) 
 
-        if token_response:
+        if token_response and token_response.get('status') == 'success':
             blind_sig = int(token_response['blind_signature'])
             
-            # Remover cegueira
-            anonymous_token = bs.unblind(blind_sig, r, public_key)
-            anonymous_token = str(anonymous_token)  # Guardar como string
-            
-            print(f"Anonymous token: {anonymous_token[:40]}...")
-        else:
-            anonymous_token = str(msg_hash)[:32]
-            print(f"Fallback token: {anonymous_token[:20]}...")
-        
+            # 5. Remover cegueira (Unblind) usando a MESMA chave pública
+            # Isto corrige o OverflowError porque os módulos n coincidem
+            signature = bs.unblind(blind_sig, r, server_blind_pub_key)
 
+            # 6. Criar token no formato "hash:signature"
+            anonymous_token = bs.signature_to_token(m_hash, signature) 
+
+            print(f"Token criado com sucesso: {anonymous_token[:50]}...")
+        else:
+            raise Exception("Server refused to sign blind token")
+        
+        # 7. Criar objeto Auction
         auction = Auction(
             item=item,
             closing_date=closing_date,
@@ -242,14 +334,13 @@ def create_auction():
             categoria=categoria
         )
 
-
         auction.anonymous_token = anonymous_token
         auction.seller_anonymous_id = crypto.get_anonymous_id()
         
-        # Guardar na base de dados local
+        # 8. Guardar na base de dados local
         db.save_auction(auction, is_mine=True)
         
-        # Broadcast P2P
+        # 9. Broadcast P2P
         network.broadcast_auction(auction)
         
         print(f"Auction broadcasted anonymously: {item}")
@@ -267,7 +358,6 @@ def create_auction():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/api/auctions/<auction_id>', methods=['GET'])
 def get_auction(auction_id):
@@ -309,14 +399,14 @@ def get_winner(auction_id):
 
 @app.route('/api/bids', methods=['POST'])
 def create_bid():
-    #Cria novo bid ANÓNIMO com blind signature
+    # Cria novo bid ANÓNIMO com blind signature corrigida
     data = request.json
     
     # Validar autenticação
     if not crypto.user_id:
         return jsonify({"error": "Not authenticated"}), 401
     
-    # Validar dados
+    # Validar dados básicos
     if not data.get('auction_id') or not data.get('value'):
         return jsonify({"error": "Missing required fields"}), 400
     
@@ -347,28 +437,35 @@ def create_bid():
         return jsonify({"error": "Não pode dar bid no próprio leilão!"}), 400
     
     try:
-        # 1. PEDIR TOKEN ANÓNIMO AO SERVIDOR CENTRAL
+        # 1. OBTER CHAVE BLIND (CORREÇÃO DO ERRO)
+        if not get_or_update_blind_key():
+             return jsonify({"error": "Could not obtain server blind key"}), 500
+
         print("Requesting anonymous token for bid from server...")
 
+        # 2. Gerar mensagem única para o token
         token_message = f"bid_token_{uuid.uuid4()}"
-        msg_hash = int(hashlib.sha256(token_message.encode()).hexdigest(), 16)  # STRING -> INT
+        
+        # 3. Cegar a mensagem usando server_blind_pub_key
+        blinded_msg, r, m_hash = bs.blind(token_message, server_blind_pub_key)
 
-        # Cegar a mensagem
-        blinded_msg, r, m_hash = bs.blind(token_message, public_key)
-
-        # Pedir assinatura cega ao servidor
+        # 4. Pedir assinatura cega ao servidor
         token_response = server.get_blind_token(str(blinded_msg))
         
-        if not token_response:
+        if not token_response or token_response.get('status') != 'success':
             return jsonify({"error": "Failed to get anonymous token"}), 500
         
-        # Remover cegueira
+        # 5. Remover cegueira (Unblind) usando a chave correta
         blind_sig = int(token_response['blind_signature'])
-        anonymous_token = bs.unblind(blind_sig, r, public_key)
-        anonymous_token = str(anonymous_token)
-        print(f"Anonymous bid token: {anonymous_token[:40]}...")
+        signature = bs.unblind(blind_sig, r, server_blind_pub_key)
+
+        # 6. Criar token no formato "hash:signature"
+        anonymous_token = bs.signature_to_token(m_hash, signature)  
+
+        print(f"Bid token criado: {anonymous_token[:50]}...")
         
-        # 2. PEDIR TIMESTAMP CONFIÁVEL AO SERVIDOR
+        # 7. PEDIR TIMESTAMP CONFIÁVEL AO SERVIDOR
+        # O timestamp garante a ordem dos lances em caso de empate
         bid_data = f"{auction_id}|{bid_value}|{token_message}"
         timestamp_response = server.request_timestamp(bid_data)
         
@@ -380,22 +477,22 @@ def create_bid():
         
         print(f"Timestamp obtained: {timestamp}")
         
-        # 3. Criar bid
+        # 8. Criar objeto Bid
         bid = Bid(
             auction_id=auction_id,
             value=bid_value
         )
         
-        # 4. ADICIONAR TOKEN ANÓNIMO E TIMESTAMP
+        # 9. Preencher dados de segurança e anonimato
         bid.anonymous_token = anonymous_token
         bid.bidder_anonymous_id = crypto.get_anonymous_id()
         bid.timestamp = timestamp
         bid.timestamp_signature = timestamp_signature
         
-        # 5. Guardar localmente (is_mine=True)
+        # 10. Guardar localmente (is_mine=True)
         db.save_bid(bid, is_mine=True)
         
-        # 6. Broadcast para a rede P2P
+        # 11. Broadcast para a rede P2P
         network.broadcast_bid(bid)
         
         print(f"Bid broadcasted anonymously: €{bid.value} at {timestamp}")

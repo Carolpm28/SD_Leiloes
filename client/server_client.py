@@ -1,4 +1,4 @@
-#Módulo de comunicação com o servidor central
+# Módulo de comunicação com o servidor central
 import socket
 import json
 from typing import Optional, Dict, List
@@ -8,14 +8,14 @@ SERVER_HOST = 'localhost'
 SERVER_PORT = 9999
 
 class ServerClient:
-    #Cliente para comunicação com o servidor central
+    # Cliente para comunicação com o servidor central
     
     def __init__(self, server_host=SERVER_HOST, server_port=SERVER_PORT):
         self.server_host = server_host
         self.server_port = server_port
     
     def _send_request(self, action: str, data: dict = {}) -> dict:
-        #Envia pedido ao servidor e retorna resposta
+        # Envia pedido ao servidor e retorna resposta (Função Interna)
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(10)
@@ -24,6 +24,7 @@ class ServerClient:
             message = {'action': action, **data}
             s.send(json.dumps(message).encode('utf-8'))
             
+            # Buffer grande (65536) para garantir que recebemos chaves/certificados inteiros
             response = json.loads(s.recv(65536).decode('utf-8'))
             s.close()
             
@@ -31,27 +32,24 @@ class ServerClient:
         
         except Exception as e:
             return {'status': 'error', 'message': str(e)}
+
+    # ========== NOVA FUNÇÃO (A QUE FALTAVA) ==========
+    def send_request(self, full_payload: dict) -> dict:
+        """
+        Wrapper público para enviar pedidos genéricos.
+        Necessário para o main.py pedir a 'get_blind_key'.
+        """
+        action = full_payload.get('action')
+        # Separa a 'action' do resto dos dados
+        data = {k: v for k, v in full_payload.items() if k != 'action'}
+        return self._send_request(action, data)
+    # =================================================
     
     # ========== Funções de autenticação ==========
     
     def register_user(self, username: str, public_key: str, 
                      ip: str, port: int, password: str) -> dict:
-        """
-        Regista novo utilizador no servidor
-        
-        Args:
-            username: Nome de utilizador único
-            public_key: Chave pública RSA em formato PEM
-            ip: Endereço IP do cliente
-            port: Porta P2P do cliente
-        
-        Returns:
-            dict com:
-                - status: 'success' ou 'error'
-                - user_id: ID único do utilizador
-                - certificate: Certificado X.509 emitido pela CA
-                - ca_certificate: Certificado da CA
-        """
+        """Regista novo utilizador no servidor"""
         return self._send_request('register', {
             'username': username,
             'public_key': public_key,
@@ -61,21 +59,21 @@ class ServerClient:
         })
     
     def login_user(self, username, password):
-        #Faz login no servidor
+        # Faz login no servidor
         return self._send_request('login', {  
             'username': username,
             'password': password
         })
     
     def get_ca_certificate(self) -> Optional[str]:
-        #Obtém certificado da Certificate Authority
+        # Obtém certificado da Certificate Authority
         response = self._send_request('get_ca_cert')
         if response.get('status') == 'success':
             return response.get('ca_certificate')
         return None
     
     def update_user_address(self, user_id, ip, port):
-        #Atualiza IP e porta do utilizador no servidor
+        # Atualiza IP e porta do utilizador no servidor
         return self._send_request('update_address', {
             'user_id': user_id,
             'ip': ip,
@@ -85,7 +83,7 @@ class ServerClient:
     # ========== Funções de descoberta P2P ==========
     
     def get_users_list(self) -> List[dict]:
-        #Obtém lista de todos os utilizadores registados
+        # Obtém lista de todos os utilizadores registados
         response = self._send_request('get_users')
         if response.get('status') == 'success':
             return response.get('users', [])
@@ -94,7 +92,7 @@ class ServerClient:
     # ========== Funções de anonimato ==========
     
     def get_blind_token(self, blinded_message: str) -> Optional[dict]:
-        #Obtém token cego para anonimato (blind signature)
+        # Obtém token cego para anonimato (blind signature)
         response = self._send_request('get_blind_token', {
             'blinded_message': blinded_message
         })
@@ -103,7 +101,7 @@ class ServerClient:
         return None
     
     def verify_token(self, token_hash: str) -> bool:
-        #Verifica se um token anónimo é válido
+        # Verifica se um token anónimo é válido
         response = self._send_request('verify_token', {
             'token_hash': token_hash
         })
@@ -112,7 +110,7 @@ class ServerClient:
     # ========== Funções de timestamping ==========
     
     def request_timestamp(self, bid_data: str) -> Optional[dict]:
-        #Pede timestamp confiável ao servidor
+        # Pede timestamp confiável ao servidor
         response = self._send_request('timestamp', {
             'bid_data': bid_data
         })
@@ -125,17 +123,14 @@ class ServerClient:
 
 def quick_register(username: str, public_key: str, 
                   client_ip: str, client_port: int) -> dict:
-    #Atalho para registar utilizador
     client = ServerClient()
     return client.register_user(username, public_key, client_ip, client_port)
 
 def quick_get_users() -> List[dict]:
-    #Atalho para obter lista de utilizadores
     client = ServerClient()
     return client.get_users_list()
 
 def quick_timestamp(bid_data: str) -> Optional[dict]:
-    #Atalho para obter timestamp
     client = ServerClient()
     return client.request_timestamp(bid_data)
 

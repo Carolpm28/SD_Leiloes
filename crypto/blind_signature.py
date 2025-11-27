@@ -153,11 +153,15 @@ class BlindSignature:
         return m == m_recovered
     
     def signature_to_token(self, message_hash, signature):
-        """
-        Converte assinatura para token (formato string)
-        Token = message_hash + signature (ambos em hex)
-        """
-        sig_bytes = self._int_to_bytes(signature, self.key_size // 8)
+        #Converte assinatura para token (formato string)
+        #Token = message_hash + signature (ambos em hex)
+        # (bit_length + 7) // 8 dá o número exato de bytes necessários
+        needed_bytes = (signature.bit_length() + 7) // 8
+        
+        # Usa o maior valor entre o tamanho da chave padrão ou o necessário
+        length = max(self.key_size // 8, needed_bytes)
+        
+        sig_bytes = self._int_to_bytes(signature, length)
         token = message_hash.hex() + ":" + sig_bytes.hex()
         return token
     

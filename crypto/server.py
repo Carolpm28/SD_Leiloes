@@ -533,6 +533,18 @@ async def handle_update_address(data):
             conn.close()
 
 
+
+async def handle_get_blind_key(data):
+    # Retorna a chave pública usada para Blind Signatures
+    return {
+        'status': 'success',
+        'blind_public_key': SERVER_BLIND_PUB_KEY.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+    }
+
+
 # ============================================================================
 # ROUTING TABLE
 # ============================================================================
@@ -544,12 +556,14 @@ HANDLERS = {
     'get_users': handle_get_users,
     'timestamp': handle_timestamp,
     'get_ca_cert': handle_get_ca_cert,
+    'get_blind_key': handle_get_blind_key,
 }
 
 
 # ============================================================================
 # SERVIDOR ASSÍNCRONO
 # ============================================================================
+
 
 async def handle_client(reader, writer):
     #Handle client connection
@@ -578,6 +592,8 @@ async def handle_client(reader, writer):
             response = await handle_timestamp(data)
         elif action == 'update_address':
             response = await handle_update_address(data)
+        elif action == 'get_blind_key':
+            response = await handle_get_blind_key(data)
         else:
             response = {'status': 'error', 'message': f'Unknown action: {action}'}
         
