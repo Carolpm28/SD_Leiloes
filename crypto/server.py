@@ -763,8 +763,14 @@ async def handle_client(reader, writer):
         await writer.drain()
     
     finally:
-        writer.close()
-        await writer.wait_closed()
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except (ConnectionResetError, BrokenPipeError):
+            pass
+        except Exception:
+            pass
+        
 
 
 async def main():

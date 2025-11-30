@@ -12,6 +12,7 @@ import atexit
 import hashlib  
 import secrets  
 import uuid     
+import requests
 
 from database import Database
 from p2p_network import P2PNetwork
@@ -226,12 +227,7 @@ def on_sync_received(sync_data):
     
     print(f"Sincronização: {synced_auctions} leilões, {synced_bids} bids novos")
 
-# Registar callbacks
-network.register_callbacks(
-    on_auction=on_auction_received,
-    on_bid=on_bid_received,
-    on_sync_received=on_sync_received  
-)
+
 
 
 # ==================== API REST ====================
@@ -780,6 +776,145 @@ def auth_status():
         }), 200
 
 # ==================== STARTUP ====================
+# ==================== LÓGICA DE REVELAÇÃO DO VENCEDOR ====================
+
+@app.route('/api/auctions/<auction_id>/claim', methods=['POST'])
+def claim_auction_win(auction_id):
+    #ENDPOINT DO VENDEDOR: Recebe contacto direto do vencedor. Valida o token e troca certificados.
+
+    data = request.json
+    winner_cert_pem = data.get('certificate')
+    winner_token = data.get('winning_token')
+    
+    print(f"\n[CLAIM] Recebido pedido de revelação para leilão {auction_id}")
+    
+    # 1. Validar se o leilão é meu
+    if not db.is_my_auction(auction_id):
+        return jsonify({"error": "Not the seller"}), 403
+        
+    # 2. Validar se este token é realmente o vencedor
+    winning_bid = db.get_winning_bid(auction_id)
+    if not winning_bid:
+        return jsonify({"error": "No winner found"}), 404
+        
+    if winning_bid.anonymous_token != winner_token:
+        print(f"Tentativa de fraude! Token recebido: {winner_token} != Real: {winning_bid.anonymous_token}")
+        return jsonify({"error": "Invalid winning token"}), 400
+        
+    print(f"\n!!! VENCEDOR CONFIRMADO !!!")
+    print(f"Token: {winner_token[:30]}...")
+    print(f"Certificado do Vencedor recebido.")
+    
+    # 3. Retornar o MEU certificado (Vendedor) para completar a troca
+    my_cert = crypto.get_certificate()
+    
+    return jsonify({
+        "status": "confirmed",
+        "message": "Identity exchange successful",
+        "seller_certificate": my_cert
+    }), 200
+
+
+def on_closed_received(data):
+    #CALLBACK DO VENCEDOR (e outros peers): Ocorre quando recebemos aviso P2P que um leilão fechou.
+    #Verifica se EU ganhei. Se sim, contacta o vendedor diretamente via HTTP.
+
+    auction_id = data.get('auction_id')
+    winning_token = data.get('winning_token')
+    seller_contact = data.get('seller_contact') # IP:PORTA_API do vendedor
+    
+    print(f"AVISO: Leilão {auction_id[:8]} fechou. Vencedor: {winning_token[:10]}...")
+    
+    # Verificar se EU sou o vencedor
+    my_bids = db.get_my_bids()
+    i_won = False
+    
+    for bid in my_bids:
+        if bid.auction_id == auction_id and bid.anonymous_token == winning_token:
+            i_won = True
+            break
+            
+    if i_won:
+        print("\n========================================")
+        print("Ganhou o leilão!")
+        print(f"A contactar o vendedor em {seller_contact} para revelar identidade...")
+        print("========================================")
+        
+        try:
+            # Preparar dados para o handshake
+            payload = {
+                "winning_token": winning_token,
+                "certificate": crypto.get_certificate()
+            }
+            
+            # Contacto DIRETO HTTP (Fora do P2P)
+            url = f"http://{seller_contact}/api/auctions/{auction_id}/claim"
+            res = requests.post(url, json=payload, timeout=5)
+            
+            if res.status_code == 200:
+                seller_data = res.json()
+                seller_cert = seller_data.get('seller_certificate')
+                print("\nIdentidade do Vendedor Recebida!")
+                print("Troca de certificados concluída com sucesso.")
+                # Aqui poderias guardar o certificado do vendedor na BD associado ao leilão
+            else:
+                print(f"Erro no handshake: {res.text}")
+                
+        except Exception as e:
+            print(f"Falha ao contactar vendedor: {e}")
+
+
+def check_auctions_thread():
+    #THREAD DO VENDEDOR: Verifica periodicamente se os meus leilões acabaram.
+    #Se acabaram, calcula o vencedor e avisa a rede.
+    processed = set()
+    
+    while True:
+        time.sleep(5) # Verifica a cada 5 segundos
+        try:
+            # Se a DB ainda não estiver pronta ou fechada
+            if not db: continue
+
+            my_auctions = db.get_my_auctions()
+            now = datetime.utcnow()
+            
+            for auction in my_auctions:
+                # Se já fechou e ainda não processámos
+                close_date = datetime.fromisoformat(auction.closing_date)
+                
+                if now > close_date and auction.auction_id not in processed:
+                    
+                    winning_bid = db.get_winning_bid(auction.auction_id)
+                    
+                    if winning_bid:
+                        print(f"\n[AUTO] Encerrando leilão '{auction.item}'. Anunciando vencedor...")
+                        
+                        # Descobrir o meu IP para o vencedor me contactar
+                        import socket
+                        try:
+                            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                            s.connect(("8.8.8.8", 80))
+                            my_ip = s.getsockname()[0]
+                            s.close()
+                        except:
+                            my_ip = '127.0.0.1'
+                            
+                        # O vencedor deve contactar a minha API REST (não a porta P2P)
+                        contact_info = f"{my_ip}:5001"
+                        
+                        network.broadcast_auction_closed(
+                            auction.auction_id,
+                            winning_bid.anonymous_token,
+                            contact_info
+                        )
+                    else:
+                        print(f"\n[AUTO] Leilão '{auction.item}' fechou sem licitações.")
+                    
+                    processed.add(auction.auction_id)
+                    
+        except Exception as e:
+            # Ignorar erros de DB locked temporários
+            pass
 
 def start_client():
     #Inicia todos os componentes
@@ -850,15 +985,28 @@ def signal_handler(sig, frame):
 # ==================== MAIN ====================
 
 if __name__ == '__main__':
-    #Regista cleanup para shutdown graceful
+    # Regista cleanup para shutdown graceful
     signal.signal(signal.SIGINT, signal_handler)   # CTRL+C
     signal.signal(signal.SIGTERM, signal_handler)  
     
-    # Registra P2P para iniciar depois
+    # Registo de todos os callbacks 
+    network.register_callbacks(
+        on_auction=on_auction_received,
+        on_bid=on_bid_received,
+        on_sync_received=on_sync_received,
+        on_auction_closed=on_closed_received  
+    )
+    
+    # Iniciar a thread do vendedor (para fechar leilões automaticamente) 
+    # Daemon=True significa que a thread morre quando o programa principal fechar
+    closer_thread = threading.Thread(target=check_auctions_thread, daemon=True)
+    closer_thread.start()
+    
+    # Registra P2P para iniciar depois (mantém-se igual)
     threading.Timer(1.0, init_p2p).start()
     
     try:
         start_client()
     except KeyboardInterrupt:
         print("\n\nShutting down...")
-        cleanup()  #Chama cleanup explicitamente
+        cleanup()

@@ -35,6 +35,10 @@ class CryptoManager:
         self._blind_key_loaded = False
         self.server_client = ServerClient()
 
+    def get_certificate(self):
+        # Return do  certificado em formato string para enviar ao vendedor
+        return self.certificate
+
     # ==================== LAZY LOADING ====================
     
     def _ensure_ca_certificate(self):

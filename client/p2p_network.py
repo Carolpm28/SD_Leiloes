@@ -130,6 +130,13 @@ class P2PNetwork:
                             bid = Bid.from_dict(message_dict["data"])
                             if self.on_bid:
                                 self.on_bid(bid)
+
+                        elif msg_type == "auction_closed":
+                            # Mensagem que anuncia o fim de um leilão e o hash do vencedor
+                            print(f"Recebido anúncio de fecho de leilão de {address}")
+                            data = message_dict["data"]
+                            if self.on_auction_closed:
+                                self.on_auction_closed(data)
                         
                         else:
                             print(f"Tipo de mensagem desconhecido: {msg_type}")
@@ -228,7 +235,7 @@ class P2PNetwork:
         #Retorna lista de peers conectados
         return self.peers.copy()
     
-    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None):
+    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None, on_auction_closed=None):
         #Define funções callback para processar mensagens
         if on_auction:
             self.on_auction_received = on_auction
@@ -238,6 +245,8 @@ class P2PNetwork:
             self.on_bid = on_bid  
         if on_sync_received:
             self.on_sync_received = on_sync_received
+        if on_auction_closed:
+            self.on_auction_closed = on_auction_closed
 
     #Pedir sincronização de leilões a um peer
     def request_sync_from_peer(self, peer_host, peer_port):
@@ -307,3 +316,16 @@ class P2PNetwork:
             print(f"Erro ao enviar sync: {e}")
             import traceback
             traceback.print_exc()
+    
+    def broadcast_auction_closed(self, auction_id, winning_token_hash, seller_contact):
+        #Avisa a rede que o leilão fechou e quem ganhou (pelo hash do token)
+        message = P2PMessage(
+            msg_type="auction_closed",
+            data={
+                "auction_id": auction_id,
+                "winning_token": winning_token_hash,
+                "seller_contact": seller_contact 
+            }
+        )
+        self._broadcast(message)
+        print(f"Broadcasted CLOSING of auction {auction_id}")
