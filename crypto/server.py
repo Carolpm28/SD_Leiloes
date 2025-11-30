@@ -1,19 +1,22 @@
 #Servidor Central do Sistema de Leilões P2P
 #Todas as chaves guardadas na BD
+import ssl
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
-
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 import bcrypt
 import asyncio
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.backends import default_backend
 
 from crypto.cert_auth import AuctionCA
 from crypto.blind_signature import BlindSignature
+from crypto.challenge_manager import Challenge_Manager
 
 # ============================================================================
 # CONFIGURAÇÃO GLOBAL
@@ -26,6 +29,8 @@ SERVER_BLIND_PRIV_KEY = None    # Chave privada para blind signatures
 SERVER_BLIND_PUB_KEY = None     # Chave pública para blind signatures
 CA = None                        # Objeto AuctionCA
 BLIND_SIG = None                 # Objeto BlindSignature
+TIMESTAMP_SERVICE = None       # Serviço de timestamping
+CHALLENGE_MANAGER = Challenge_Manager(expiration_time=60)  # Iniciar gestor globalmente
 
 # Configuração da rede
 SERVER_HOST = '0.0.0.0'
@@ -40,6 +45,15 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
+    # TABELA PARA SSL
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ssl_keys (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            cert_pem BLOB,
+            key_pem BLOB
+        )
+    ''')
+
     # Tabela de utilizadores
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -94,6 +108,86 @@ def init_db():
     conn.commit()
     conn.close()
 
+def init_ssl_keys():
+    """
+    Gere chaves SSL:
+    1. Tenta carregar da BD.
+    2. Se não existir, gera novas e guarda na BD.
+    3. Escreve ficheiros físicos (.pem) para o módulo SSL usar.
+    """
+    print("[SSL] Checking SSL keys...")
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    c.execute('SELECT cert_pem, key_pem FROM ssl_keys WHERE id=1')
+    row = c.fetchone()
+    
+    cert_pem = None
+    key_pem = None
+
+    if row and row[0] and row[1]:
+        print("  ✓ Found SSL keys in database")
+        cert_pem = row[0]
+        key_pem = row[1]
+    else:
+        print("  ↪ Generating new Self-Signed SSL Certificate...")
+        
+        # 1. Gerar Chave Privada
+        key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        
+        # 2. Gerar Certificado Auto-assinado
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, u"PT"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"P2P Auction Server"),
+            x509.NameAttribute(NameOID.COMMON_NAME, u"localhost"),
+        ])
+        
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.utcnow())
+            .not_valid_after(datetime.utcnow() + timedelta(days=365))
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(u"localhost")]),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256(), default_backend())
+        )
+        
+        # 3. Converter para PEM (bytes)
+        key_pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+        
+        # 4. Guardar na BD
+        c.execute('INSERT OR REPLACE INTO ssl_keys (id, cert_pem, key_pem) VALUES (1, ?, ?)', 
+                  (cert_pem, key_pem))
+        conn.commit()
+        print("  ✓ New SSL keys generated and saved to DB")
+
+    conn.close()
+
+    # 5. Escrever para ficheiros físicos (Obrigatório para o ssl.create_default_context)
+    # Sempre que o servidor arranca, garante que os ficheiros no disco batem certo com a BD
+    with open("server_cert.pem", "wb") as f:
+        f.write(cert_pem)
+        
+    with open("server_key.pem", "wb") as f:
+        f.write(key_pem)
+        
+    print("  ✓ SSL files 'server_cert.pem' and 'server_key.pem' exported/verified")
+
 
 def init_auction_ca():
     #Inicializa a Certificate Authority
@@ -133,6 +227,13 @@ def init_auction_ca():
     CA = ca
     return ca
 
+def init_timestamp_service():
+    #Inicializa o serviço de timestamping
+    global TIMESTAMP_SERVICE
+    
+    from crypto.timestamp_service import TimestampService
+    TIMESTAMP_SERVICE = TimestampService(db_path=DB_PATH)
+    print("Timestamp service initialized")
 
 def init_blind_signature_keys():
     #Inicializa as chaves para blind signatures
@@ -192,6 +293,44 @@ def init_blind_signature_keys():
 # ============================================================================
 # HANDLERS DAS MENSAGENS
 # ============================================================================
+
+async def handle_get_challenge(data):
+
+    """
+    Gera desafio genérico para autenticação do utilizador
+    """
+    print("[CHALLENGE] Generating challenge...")
+    conn = None
+    try:
+        username = data['username']
+
+        #fetch da chave pub do user
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT public_key FROM users WHERE username = ?', (username,))
+        row = c.fetchone()
+        if not row:
+            return {'status': 'error', 'message': 'User not found'}
+        pub_key_pem = row[0]
+
+        print(f"[CHALLENGE] Generating challenge for user: {username}")
+
+        #usar o challenge manager
+        encrypted_challenge = CHALLENGE_MANAGER.generate_challenge(username, pub_key_pem)
+
+        print(f"[DEBUG] Generated challenge len: {len(encrypted_challenge) if encrypted_challenge else 'None'}")
+        if encrypted_challenge:
+            return {
+                'status': 'success',
+                'encrypted_challenge': encrypted_challenge
+            }
+        else:
+            return {'status': 'error', 'message': 'Failed to generate challenge'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 async def handle_register(data):
     #Regista novo utilizador e emite certificado
@@ -266,7 +405,15 @@ async def handle_login(data):
     try:
         username = data['username']
         password = data['password']
+        nonce_solution = data['nonce_solution']
+
+        if not nonce_solution:
+            return {'status': 'error', 'message': 'No nonce solution provided'}
         
+        #Verificar nonce
+        if not CHALLENGE_MANAGER.verify_response(username, nonce_solution):
+            return {'status': 'error', 'message': 'Invalid or expired challenge response'}
+
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
         c = conn.cursor()
         
@@ -557,6 +704,8 @@ HANDLERS = {
     'timestamp': handle_timestamp,
     'get_ca_cert': handle_get_ca_cert,
     'get_blind_key': handle_get_blind_key,
+    'get_challenge': handle_get_challenge,
+    'login': handle_login,
 }
 
 
@@ -594,6 +743,10 @@ async def handle_client(reader, writer):
             response = await handle_update_address(data)
         elif action == 'get_blind_key':
             response = await handle_get_blind_key(data)
+        elif action == "get_challenge":
+            response = await handle_get_challenge(data)
+        elif action == "login":
+            response = await handle_login(data)
         else:
             response = {'status': 'error', 'message': f'Unknown action: {action}'}
         
@@ -621,24 +774,39 @@ async def main():
     print("=" * 60)
     
     # Inicializar componentes
-    print("\n[1/3] Initializing database...")
+    print("\n[1/5] Initializing database...")
     init_db()
     
-    print("[2/3] Initializing Certificate Authority...")
+    print("[2/5] Initializing Certificate Authority...")
     init_auction_ca()
     
-    print("[3/3] Initializing Blind Signature system...")
+    print("[3/5] Initializing Blind Signature system...")
     init_blind_signature_keys()
     
-    print("\n" + "=" * 60)
-    print(f"Server listening on {SERVER_HOST}:{SERVER_PORT}")
-    print("=" * 60 + "\n")
+    print("[4/5] Initializing Time-stamping service...")
+    init_timestamp_service()
+
+    print("[5/5] Initializing SSL keys...")
+    init_ssl_keys()
     
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+
+    try:
+        ssl_context.load_cert_chain(certfile="server_cert.pem", keyfile="server_key.pem")
+    except Exception as e:
+        print(f"Failed to load SSL certificates: {e}")
+        return
+
+    print("\n" + "=" * 60)
+    print(f"Server listening on {SERVER_HOST}:{SERVER_PORT}" " (SSL/TLS enabled)")
+    print("=" * 60 + "\n")
+
     # Criar servidor TCP
     server = await asyncio.start_server(
         handle_client,
         SERVER_HOST,
-        SERVER_PORT
+        SERVER_PORT,
+        ssl=ssl_context
     )
     
     # Manter servidor a correr

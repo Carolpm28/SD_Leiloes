@@ -9,8 +9,8 @@ import sqlite3
 # Assumindo estrutura de pastas
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from server.main import init_db, init_auction_ca, init_server_keys
-from crypto.blind_signatures import BlindSignature
+from crypto.server_exp import init_db, init_auction_ca, init_blind_signature_keys
+from crypto.blind_signature import BlindSignature
 
 
 def test_database():
@@ -222,6 +222,38 @@ def test_blind_signatures():
         traceback.print_exc()
         return False
 
+def test_timestamp_service():
+    """Testa serviço de timestamps"""
+    print("\n" + "=" * 60)
+    print("TEST 5: Timestamp Service")
+    print("=" * 60)
+    
+    try:
+        from crypto.timestamp_service import TimestampService
+        
+        # Inicializar serviço
+        tsa = TimestampService(db_path='server.db')
+        print("  ✓ TimestampService initialized")
+        
+        # Emitir timestamp
+        item_hash = "TEST_ITEM_HASH_123"
+        ts = tsa.issue_timestamp(item_hash)
+        print("  ✓ Timestamp issued")
+        
+        # Verificar campos
+        if ts['payload']['item'] == item_hash:
+            print("  ✓ Timestamp payload verified")
+            print("\n  ✅ Timestamp service test PASSED")
+            return True
+        else:
+            print("  ❌ Timestamp payload mismatch")
+            return False
+            
+    except Exception as e:
+        print(f"\n  ❌ Timestamp service test FAILED: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def run_all_tests():
     """Executa todos os testes"""
@@ -242,6 +274,9 @@ def run_all_tests():
     
     # Test 4: Blind Signatures
     results.append(("Blind Signatures", test_blind_signatures()))
+    
+    # Test 5: Timestamp Service
+    results.append(("Timestamp Service", test_timestamp_service()))
     
     # Summary
     print("\n" + "=" * 60)

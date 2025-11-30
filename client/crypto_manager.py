@@ -1,4 +1,5 @@
 #Cliente de Criptografia - Integração com Servidor
+from urllib import response
 import requests
 import json
 import os
@@ -121,11 +122,24 @@ class CryptoManager:
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ).decode()
             
+            payload_to_sign = f"{username}|{pub_key_pem}".encode('utf-8')
+
+            signature = self.private_key.sign(
+                payload_to_sign,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            ).hex()
+
             response = self.server_client.register_user(
                 username=username,
                 public_key=pub_key_pem,
                 ip=ip,
-                port=port
+                port=port,
+                password=password,
+                signature=signature
             )
             
             if response.get('status') == 'success':
@@ -145,10 +159,23 @@ class CryptoManager:
         except Exception as e:
             print(f"Registration error: {e}")
             return False, str(e)
+        
     def login(self, username, password):
         #faz login no servidor
         try:
-            response = self.server_client.login_user(username, password)
+
+            if not self._load_keys(username):
+                return False, "User keys not found. Please register first."
+            
+            print ("[DEBUG] Requesting challenge from server...")
+
+
+
+            nonce_solution = self.solve_challenge(username)
+            if not nonce_solution:
+                return False, "Failed to solve challenge from server."
+
+            response = self.server_client.login_user(username, password, nonce_solution)
             
             print(f"[DEBUG] Server response: {response}")
             
@@ -170,6 +197,40 @@ class CryptoManager:
             print(f"Login error: {e}")
             return False, str(e)
     
+    def decrypt_challenge(self, encrypted_hex):
+        """decifra o desafio recebido do servidor usando a chave privada local"""
+        try:
+            encryted_bytes = bytes.fromhex(encrypted_hex)
+
+            decrypted_nonce = self.private_key.decrypt(
+                encryted_bytes,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            return decrypted_nonce.decode()
+        except Exception as e:
+            print(f"Decryption error: {e}")
+            return None
+        
+    def solve_challenge(self,username):
+        """pede desafio -> decifra -> returna solução"""
+        try:
+            print(f"[DEBUG] Requesting challenge from server...")
+            response = self.server_client.get_login_challenge(username)
+            print(f"[DEBUG] Resposta completa do servidor: {response}")
+            if response.get('status') != 'success':
+                print(f"Challenge error: {response.get('message')}")
+                return None
+            
+            encrypted_challenge = response.get('encrypted_challenge')
+            solution = self.decrypt_challenge(encrypted_challenge)
+            return solution
+        except Exception as e:
+            print(f"Solve challenge error: {e}")
+            return None
     # ==================== BLIND SIGNATURES (ANONIMATO) ====================
     
     def request_anonymous_token(self):
@@ -303,30 +364,55 @@ class CryptoManager:
     # ==================== GESTÃO DE CHAVES ====================
     
     def _save_keys(self, username):
-        #Guarda chaves no disco
-        # Chave privada
-        priv_pem = self.private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()  # TODO: Adicionar password
-        )
+        import os # Garante que tens este import
+        print(f"\n[DEBUG] _save_keys foi chamada para: {username}")
         
-        with open(f"{self.keys_dir}/{username}_private.pem", "wb") as f:
-            f.write(priv_pem)
-        
-        # Chave pública
-        pub_pem = self.public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-        
-        with open(f"{self.keys_dir}/{username}_public.pem", "wb") as f:
-            f.write(pub_pem)
-        
-        # Certificado (se existir)
-        if self.certificate:
-            with open(f"{self.keys_dir}/{username}_cert.pem", "w") as f:
-                f.write(self.certificate)
+        try:
+            # 1. Descobrir o caminho absoluto (onde é que ele pensa que está a gravar?)
+            abs_keys_dir = os.path.abspath(self.keys_dir)
+            print(f"[DEBUG] Caminho absoluto da pasta: {abs_keys_dir}")
+            
+            # Garantir que a pasta existe
+            os.makedirs(abs_keys_dir, exist_ok=True)
+
+            # 2. Guardar Chave Privada
+            priv_path = os.path.join(abs_keys_dir, f"{username}_private.pem")
+            
+            priv_pem = self.private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            )
+            
+            with open(priv_path, "wb") as f:
+                f.write(priv_pem)
+            print(f"[DEBUG] ✓ Chave Privada escrita em: {priv_path}")
+            
+            # 3. Guardar Chave Pública
+            pub_path = os.path.join(abs_keys_dir, f"{username}_public.pem")
+            
+            pub_pem = self.public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+            
+            with open(pub_path, "wb") as f:
+                f.write(pub_pem)
+            print(f"[DEBUG] ✓ Chave Pública escrita em: {pub_path}")
+            
+            # 4. Guardar Certificado
+            if self.certificate:
+                cert_path = os.path.join(abs_keys_dir, f"{username}_cert.pem")
+                with open(cert_path, "w") as f:
+                    f.write(self.certificate)
+                print(f"[DEBUG] ✓ Certificado escrito em: {cert_path}")
+            else:
+                print("[DEBUG] ! Aviso: self.certificate está vazio/None")
+                
+        except Exception as e:
+            print(f"[DEBUG] ❌ ERRO CRÍTICO AO GUARDAR CHAVES: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _load_keys(self, username):
         #Carrega chaves do disco
@@ -353,9 +439,11 @@ class CryptoManager:
                     self.certificate = f.read()
             
             print(f"Keys loaded for {username}")
+            return True
             
         except FileNotFoundError:
             print(f"No keys found for {username}")
+            return False
     
     def get_anonymous_id(self):
         #Retorna ID anónimo (hash da chave pública). Usado para identificar-se sem revelar identidade

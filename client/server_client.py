@@ -1,6 +1,7 @@
 # Módulo de comunicação com o servidor central
 import socket
 import json
+import ssl
 from typing import Optional, Dict, List
 
 # Configuração do servidor
@@ -17,18 +18,27 @@ class ServerClient:
     def _send_request(self, action: str, data: dict = {}) -> dict:
         # Envia pedido ao servidor e retorna resposta (Função Interna)
         try:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(10)
-            s.connect((self.server_host, self.server_port))
+
+            with context.wrap_socket(s, server_hostname=self.server_host) as s:
+                
+                s.connect((self.server_host, self.server_port))
             
-            message = {'action': action, **data}
-            s.send(json.dumps(message).encode('utf-8'))
+                message = {'action': action, **data}
+                s.send(json.dumps(message).encode('utf-8'))
             
-            # Buffer grande (65536) para garantir que recebemos chaves/certificados inteiros
-            response = json.loads(s.recv(65536).decode('utf-8'))
-            s.close()
+                # Buffer grande (65536) para garantir que recebemos chaves/certificados inteiros
+                response = json.loads(s.recv(65536).decode('utf-8'))
+                if not response:
+                    return {'status': 'error', 'message': 'No response from server'}
+                # s.close()
             
-            return response
+                return response
         
         except Exception as e:
             return {'status': 'error', 'message': str(e)}
@@ -48,23 +58,29 @@ class ServerClient:
     # ========== Funções de autenticação ==========
     
     def register_user(self, username: str, public_key: str, 
-                     ip: str, port: int, password: str) -> dict:
+                     ip: str, port: int, password: str, signature=None) -> dict:
         """Regista novo utilizador no servidor"""
-        return self._send_request('register', {
+        payload = {
             'username': username,
             'public_key': public_key,
             'ip': ip,
             'port': port,
             'password': password
-        })
+        }
+        if signature:
+            payload['signature'] = signature
+        return self._send_request('register', payload)
     
-    def login_user(self, username, password):
+    def login_user(self, username, password, nonce_solution=None):
         # Faz login no servidor
-        return self._send_request('login', {  
+        payload ={
             'username': username,
             'password': password
-        })
-    
+        }
+        if nonce_solution:
+            payload['nonce_solution'] = nonce_solution
+        return self._send_request('login', payload)
+
     def get_ca_certificate(self) -> Optional[str]:
         # Obtém certificado da Certificate Authority
         response = self._send_request('get_ca_cert')
@@ -80,6 +96,9 @@ class ServerClient:
             'port': port
         })
     
+    def get_login_challenge(self, username):
+        return self._send_request('get_challenge', {'username': username})
+
     # ========== Funções de descoberta P2P ==========
     
     def get_users_list(self) -> List[dict]:
