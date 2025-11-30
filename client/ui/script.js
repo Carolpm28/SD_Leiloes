@@ -1174,12 +1174,36 @@ async function loadAuctionDetails(auctionId) {
         window.currentAuction = auction;
         updateCountdownTimer();
         
-        // Hint do formulário
         const hint = document.getElementById('bid-min-hint');
         hint.textContent = auction.min_bid 
             ? `Valor mínimo: €${auction.min_bid.toFixed(2)}`
             : 'Digite o valor da sua proposta';
         
+        // 1. Obter referências para a caixa verde que criámos no HTML
+        const identityBox = document.getElementById('identity-reveal-box');
+        const identityMsg = document.getElementById('identity-message');
+        
+        // 2. Esconder sempre primeiro (reset), para não mostrar dados de outros leilões
+        if (identityBox) identityBox.style.display = 'none';
+
+        // 3. Se a API trouxer o nome do VENCEDOR (significa que sou o Vendedor e já acabou)
+        if (auction.revealed_winner) {
+            identityBox.style.display = 'block'; // Mostrar a caixa
+            identityMsg.innerHTML = `
+                <strong>Vencedor Confirmado:</strong> ${auction.revealed_winner}<br>
+                <small style="opacity: 0.8;">Identidade validada via Certificado Digital.</small>
+            `;
+        }
+        
+        // 4. Se a API trouxer o nome do vencedor (significa que sou o Vencedor e já acabou)
+        if (auction.revealed_seller) {
+            identityBox.style.display = 'block'; // Mostrar a caixa
+            identityMsg.innerHTML = `
+                <strong>Vendedor Confirmado:</strong> ${auction.revealed_seller}<br>
+                <small style="opacity: 0.8;">Identidade validada via Certificado Digital.</small>
+            `;
+        }
+
     } catch (error) {
         console.error('Erro ao carregar detalhes:', error);
         showNotification('Erro ao carregar leilão', 'error');

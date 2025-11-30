@@ -388,7 +388,7 @@
             </div>
 
             <div class="detalhes-container">
-                <!-- COLUNA ESQUERDA: Informações -->
+                <!-- Coluna esquerda: Informações -->
                 <div class="detalhes-info">
                     <div class="detalhes-card">
                         <div class="detalhes-countdown">
@@ -418,6 +418,13 @@
                             </div>
                         </div>
 
+                        <div id="identity-reveal-box" style="display: none; background-color: #d4edda; color: #155724; padding: 15px; margin-top: 15px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #c3e6cb;">
+                            <h3 style="margin-top: 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                Identidade Revelada
+                            </h3>
+                            <p id="identity-message" style="margin-bottom: 0; margin-top: 5px; font-size: 14px; line-height: 1.4;"></p>
+                        </div>
                         <div class="detalhes-bid-atual" id="detalhes-bid-container" style="display: none;">
                             <div class="bid-atual-header">
                                 <span>Licitação Atual</span>
@@ -425,10 +432,7 @@
                             <div class="bid-atual-valor" id="detalhes-bid-valor">€0.00</div>
                             <div class="bid-atual-info" id="detalhes-bid-info">Sem licitações ainda</div>
                         </div>
-                    </div>
-
-                    <!-- FORMULÁRIO PARA FAZER BID -->
-                    <div class="detalhes-card" id="detalhes-form-container">
+                    </div> <div class="detalhes-card" id="detalhes-form-container">
                         <h3>Fazer Licitação</h3>
                         <form id="formFazerBid" class="bid-form">
                             <div class="form-group">

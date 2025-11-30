@@ -775,102 +775,92 @@ def auth_status():
             "authenticated": False
         }), 200
 
-# ==================== STARTUP ====================
+
 # ==================== LÓGICA DE REVELAÇÃO DO VENCEDOR ====================
 
 @app.route('/api/auctions/<auction_id>/claim', methods=['POST'])
 def claim_auction_win(auction_id):
-    #ENDPOINT DO VENDEDOR: Recebe contacto direto do vencedor. Valida o token e troca certificados.
-
+    #ENDPOINT DO VENDEDOR
     data = request.json
     winner_cert_pem = data.get('certificate')
     winner_token = data.get('winning_token')
     
-    print(f"\n[CLAIM] Recebido pedido de revelação para leilão {auction_id}")
-    
-    # 1. Validar se o leilão é meu
+    # Validações
     if not db.is_my_auction(auction_id):
-        return jsonify({"error": "Not the seller"}), 403
-        
-    # 2. Validar se este token é realmente o vencedor
+        return jsonify({"error": "Unauthorized"}), 403
     winning_bid = db.get_winning_bid(auction_id)
-    if not winning_bid:
-        return jsonify({"error": "No winner found"}), 404
+    if not winning_bid or winning_bid.anonymous_token != winner_token:
+        return jsonify({"error": "Invalid token"}), 400
         
-    if winning_bid.anonymous_token != winner_token:
-        print(f"Tentativa de fraude! Token recebido: {winner_token} != Real: {winning_bid.anonymous_token}")
-        return jsonify({"error": "Invalid winning token"}), 400
-        
-    print(f"\n!!! VENCEDOR CONFIRMADO !!!")
-    print(f"Token: {winner_token[:30]}...")
-    print(f"Certificado do Vencedor recebido.")
-    
-    # 3. Retornar o MEU certificado (Vendedor) para completar a troca
-    my_cert = crypto.get_certificate()
+    # Extrair e Guardar Nome
+    winner_name = crypto.extract_name_from_cert(winner_cert_pem)
+    print(f"\n!!! VENCEDOR REVELADO: {winner_name} !!!")
+    db.set_revealed_identity(auction_id, winner_name=winner_name)
     
     return jsonify({
         "status": "confirmed",
-        "message": "Identity exchange successful",
-        "seller_certificate": my_cert
+        "seller_certificate": crypto.get_certificate()
     }), 200
 
-
 def on_closed_received(data):
-    #CALLBACK DO VENCEDOR (e outros peers): Ocorre quando recebemos aviso P2P que um leilão fechou.
-    #Verifica se EU ganhei. Se sim, contacta o vendedor diretamente via HTTP.
-
+    #CALLBACK DO VENCEDOR
     auction_id = data.get('auction_id')
     winning_token = data.get('winning_token')
-    seller_contact = data.get('seller_contact') # IP:PORTA_API do vendedor
+    seller_contact = data.get('seller_contact')
     
-    print(f"AVISO: Leilão {auction_id[:8]} fechou. Vencedor: {winning_token[:10]}...")
-    
-    # Verificar se EU sou o vencedor
+    # Verificar se ganhei
     my_bids = db.get_my_bids()
     i_won = False
-    
     for bid in my_bids:
         if bid.auction_id == auction_id and bid.anonymous_token == winning_token:
             i_won = True
             break
             
     if i_won:
-        print("\n========================================")
-        print("Ganhou o leilão!")
-        print(f"A contactar o vendedor em {seller_contact} para revelar identidade...")
-        print("========================================")
-        
+        print(f"\nGanhaste o leilão! Contactando vendedor em {seller_contact}...")
         try:
-            # Preparar dados para o handshake
             payload = {
                 "winning_token": winning_token,
                 "certificate": crypto.get_certificate()
             }
-            
-            # Contacto DIRETO HTTP (Fora do P2P)
             url = f"http://{seller_contact}/api/auctions/{auction_id}/claim"
             res = requests.post(url, json=payload, timeout=5)
             
             if res.status_code == 200:
-                seller_data = res.json()
-                seller_cert = seller_data.get('seller_certificate')
-                print("\nIdentidade do Vendedor Recebida!")
-                print("Troca de certificados concluída com sucesso.")
-                # Aqui poderias guardar o certificado do vendedor na BD associado ao leilão
+                seller_cert = res.json().get('seller_certificate')
+                seller_name = crypto.extract_name_from_cert(seller_cert)
+                print(f" Vendedor Revelado: {seller_name}")
+                
+                # Guardar na BD
+                db.set_revealed_identity(auction_id, seller_name=seller_name)
             else:
                 print(f"Erro no handshake: {res.text}")
-                
         except Exception as e:
             print(f"Falha ao contactar vendedor: {e}")
 
+
+# ==================== STARTUP ====================
 
 def check_auctions_thread():
     #THREAD DO VENDEDOR: Verifica periodicamente se os meus leilões acabaram.
     #Se acabaram, calcula o vencedor e avisa a rede.
     processed = set()
+    discovery_timer = 0
     
     while True:
         time.sleep(5) # Verifica a cada 5 segundos
+        discovery_timer += 1
+        if discovery_timer >= 6:
+            try:
+                # Pergunta ao servidor quem está online
+                users = server.get_users_list()
+                for user in users:
+                    # Se não sou eu, adiciona
+                    if user.get('user_id') != crypto.user_id:
+                         network.add_peer(user['ip'], user['port'])
+                discovery_timer = 0
+            except:
+                pass
         try:
             # Se a DB ainda não estiver pronta ou fechada
             if not db: continue

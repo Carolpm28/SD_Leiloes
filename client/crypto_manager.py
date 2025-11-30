@@ -414,7 +414,7 @@ class CryptoManager:
                 print("[DEBUG] ! Aviso: self.certificate está vazio/None")
                 
         except Exception as e:
-            print(f"[DEBUG] ❌ ERRO CRÍTICO AO GUARDAR CHAVES: {e}")
+            print(f"[DEBUG] ERRO CRÍTICO AO GUARDAR CHAVES: {e}")
             import traceback
             traceback.print_exc()
     
@@ -461,6 +461,23 @@ class CryptoManager:
         )
         
         return hashlib.sha256(pub_pem).hexdigest()[:16]
+
+#====================
+
+def extract_name_from_cert(self, cert_pem):
+        #Extrai o Common Name (CN) de uma string de certificado PEM
+        try:
+            if isinstance(cert_pem, str):
+                cert_pem = cert_pem.encode()
+                
+            cert = x509.load_pem_x509_certificate(cert_pem, self.backend)
+            attributes = cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+            if attributes:
+                return attributes[0].value
+            return "Unknown User"
+        except Exception as e:
+            print(f"Erro a ler certificado: {e}")
+            return "Invalid Cert"
 
 
 # ==================== TESTES ====================

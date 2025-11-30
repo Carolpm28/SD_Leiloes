@@ -35,6 +35,8 @@ class Database:
                 anonymous_token TEXT,
                 seller_anonymous_id TEXT,
                 is_mine INTEGER DEFAULT 0,
+                revealed_winner_name TEXT,  
+                revealed_seller_name TEXT,  
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -270,6 +272,15 @@ class Database:
         cursor.execute("SELECT is_mine FROM auctions WHERE auction_id = ?", (auction_id,))
         row = cursor.fetchone()
         return row and row["is_mine"] == 1
+    
+    def set_revealed_identity(self, auction_id, winner_name=None, seller_name=None):
+        #Guarda a identidade revelada após o leilão fechar 
+        cursor = self.conn.cursor()
+        if winner_name:
+            cursor.execute("UPDATE auctions SET revealed_winner_name = ? WHERE auction_id = ?", (winner_name, auction_id))
+        if seller_name:
+            cursor.execute("UPDATE auctions SET revealed_seller_name = ? WHERE auction_id = ?", (seller_name, auction_id))
+        self.conn.commit()
 
     # ==================== HELPERS ====================
     
@@ -285,6 +296,9 @@ class Database:
         auction.signature = row["signature"]
         auction.anonymous_token = row["anonymous_token"] if "anonymous_token" in row.keys() else None
         auction.seller_anonymous_id = row["seller_anonymous_id"]
+        auction.revealed_winner = row["revealed_winner_name"] if "revealed_winner_name" in row.keys() else None
+        auction.revealed_seller = row["revealed_seller_name"] if "revealed_seller_name" in row.keys() else None
+        # ---------------------
         return auction
     
     def _row_to_bid(self, row) -> Bid:
