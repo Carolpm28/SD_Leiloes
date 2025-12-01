@@ -40,6 +40,7 @@ CORS(app)  # Permite requests da frontend
 db = Database("auction_client.db")
 network = P2PNetwork(port=6000, database=db)
 crypto = CryptoManager()
+
 server = ServerClient()  
 
 # Estado global
@@ -359,6 +360,9 @@ def create_auction():
 def get_auction(auction_id):
     #Retorna detalhes de um leilão específico
     auction = db.get_auction(auction_id)
+
+    if auction:
+        print(f"\nDB READ DEBUG: {auction.__dict__}")
     
     if not auction:
         return jsonify({"error": "Auction not found"}), 404

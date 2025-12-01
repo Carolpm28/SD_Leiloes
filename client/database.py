@@ -296,6 +296,7 @@ class Database:
         auction.signature = row["signature"]
         auction.anonymous_token = row["anonymous_token"] if "anonymous_token" in row.keys() else None
         auction.seller_anonymous_id = row["seller_anonymous_id"]
+        auction.is_mine = row["is_mine"]
         auction.revealed_winner = row["revealed_winner_name"] if "revealed_winner_name" in row.keys() else None
         auction.revealed_seller = row["revealed_seller_name"] if "revealed_seller_name" in row.keys() else None
         # ---------------------

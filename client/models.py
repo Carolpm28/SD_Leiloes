@@ -28,7 +28,10 @@ class Auction:
             "categoria": self.categoria,
             "signature": self.signature,
             "anonymous_token": self.anonymous_token,
-            "seller_anonymous_id": self.seller_anonymous_id
+            "seller_anonymous_id": self.seller_anonymous_id,
+            "is_mine": getattr(self, 'is_mine', 0),
+            "revealed_winner": getattr(self, 'revealed_winner', None),
+            "revealed_seller": getattr(self, 'revealed_seller', None)
         }
     
     @staticmethod
@@ -67,7 +70,7 @@ class Bid:
             "value": self.value,
             "timestamp": self.timestamp,
             "signature": self.signature,
-            "anonymous_token": self.anonymous_token,  
+            "anonymous_token": self.anonymous_token,
             "bidder_cert": self.bidder_cert,
             "bidder_anonymous_id": self.bidder_anonymous_id
         }

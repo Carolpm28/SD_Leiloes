@@ -375,7 +375,6 @@
                 </div>
             </section>
         </div>
-        <!-- ==================== PÁGINA: DETALHES DO LEILÃO ==================== -->
         <section id="page-detalhes" class="page-section">
             <div class="page-header">
                 <button class="btn-back" onclick="navigateTo('leiloes')">
@@ -388,8 +387,8 @@
             </div>
 
             <div class="detalhes-container">
-                <!-- Coluna esquerda: Informações -->
                 <div class="detalhes-info">
+                    
                     <div class="detalhes-card">
                         <div class="detalhes-countdown">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -425,6 +424,7 @@
                             </h3>
                             <p id="identity-message" style="margin-bottom: 0; margin-top: 5px; font-size: 14px; line-height: 1.4;"></p>
                         </div>
+
                         <div class="detalhes-bid-atual" id="detalhes-bid-container" style="display: none;">
                             <div class="bid-atual-header">
                                 <span>Licitação Atual</span>
@@ -432,7 +432,9 @@
                             <div class="bid-atual-valor" id="detalhes-bid-valor">€0.00</div>
                             <div class="bid-atual-info" id="detalhes-bid-info">Sem licitações ainda</div>
                         </div>
-                    </div> <div class="detalhes-card" id="detalhes-form-container">
+                    </div> 
+
+                    <div class="detalhes-card" id="detalhes-form-container">
                         <h3>Fazer Licitação</h3>
                         <form id="formFazerBid" class="bid-form">
                             <div class="form-group">
@@ -453,7 +455,6 @@
                     </div>
                 </div>
 
-                <!-- COLUNA DIREITA: Histórico de Bids -->
                 <div class="detalhes-bids">
                     <div class="detalhes-card">
                         <h3>Histórico de Licitações</h3>
