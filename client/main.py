@@ -243,7 +243,22 @@ def on_reveal_received(reveal_data):
     else:
          print(f"\n------Revelação recebida. Vendedor: {seller_name}, Vencedor: {winner_name}")
 
-
+def on_identity_reveal_received(data):
+    #Callback chamado quando a identidade do vendedor é revelada via P2P
+    winner_anon_id = data.get('winner_anonymous_id')
+    
+    # 1. Verifica: Sou eu o Vencedor deste bid?
+    if winner_anon_id == crypto.get_anonymous_id():
+        seller_name = data.get('seller_username')
+        auction_id = data.get('auction_id')
+        
+        print(f"\nRecebida Identidade do Vendedor: {seller_name}")
+        
+        # 2. Guardar a identidade do Vendedor na minha base de dados
+        # A função set_revealed_identity usa seller_name=seller_name
+        db.set_revealed_identity(auction_id, seller_name=seller_name)
+        
+        print(f"Nome do Vendedor ({seller_name}) guardado para leilão {auction_id[:8]}.")
 # ==================== API REST ====================
 
 # --- SERVIR FRONTEND ---
@@ -903,19 +918,22 @@ def check_auctions_thread():
                         # 3. Processar Resposta
                         if response and response.get('status') == 'success':
                             winner_name = response.get('winner_username')
-                            print(f"Identidade revelada: {winner_name} ")
-                            
-                            # 4. Atualizar a Base de Dados local para mostrar o vencedor no frontend
-                            db.set_revealed_identity(auction.auction_id, winner_name=winner_name, seller_name=crypto.username)
+                            # winning_bid (objeto Bid local, obtido no início do loop)
+                            print(f"     Identidade revelada pelo notario: {winner_name} ")
 
-                            network.broadcast_message(
-                                'REVEAL_INFO', 
-                                {
-                                    'auction_id': auction.auction_id,
-                                    'winner_name': winner_name,
-                                    'seller_name': crypto.username 
-                                }
-                            )
+                            if winning_bid and winning_bid.bidder_anonymous_id:
+                                network.broadcast_identity_reveal(
+                                    auction.auction_id,
+                                    crypto.username,                    # Nome do Vendedor (você)
+                                    winning_bid.bidder_anonymous_id     # ID anónimo do Vencedor (filtro)
+                                )
+                                print(f"Broadcasted Seller Identity to anonymous ID: {winning_bid.bidder_anonymous_id[:8]}...")
+                            else:
+                                print("ERRO: Bid vencedor não tem ID anónimo para broadcast P2P.")
+                            
+                            # (O Vendedor também deve guardar o nome do Vencedor, o que já faz)
+                            db.set_revealed_identity(auction.auction_id, winner_name=winner_name)
+                            # -------------------------------------------------------------
 
                         else:
                             print(f"Revelação recusada: {response.get('message', 'Erro desconhecido')} ")
@@ -1010,7 +1028,8 @@ if __name__ == '__main__':
         on_bid=on_bid_received,
         on_sync_received=on_sync_received,
         on_auction_closed=on_closed_received,
-        on_reveal=on_reveal_received
+        on_reveal=on_reveal_received,
+        on_identity_reveal=on_identity_reveal_received
     )
     
     # Iniciar a thread do vendedor (para fechar leilões automaticamente) 

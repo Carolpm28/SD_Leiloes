@@ -144,6 +144,11 @@ class P2PNetwork:
                             data = message_dict["data"]
                             if hasattr(self, 'on_reveal') and self.on_reveal:
                                 self.on_reveal(data)
+                        elif msg_type == "identity_reveal": 
+                            data = message_dict["data"]
+                            if self.on_identity_reveal:
+                            # Chama o callback que está no main.py
+                                self.on_identity_reveal(data)
                         
                         else:
                             print(f"Tipo de mensagem desconhecido: {msg_type}")
@@ -242,8 +247,8 @@ class P2PNetwork:
         #Retorna lista de peers conectados
         return self.peers.copy()
     
-    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None, on_auction_closed=None, on_reveal=None):
-        #Define funções callback para processar mensagens
+    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None, on_auction_closed=None, on_reveal=None, on_identity_reveal=None):
+        # Define funções callback para processar mensagens
         if on_auction:
             self.on_auction_received = on_auction
             self.on_auction = on_auction  
@@ -256,6 +261,8 @@ class P2PNetwork:
             self.on_auction_closed = on_auction_closed
         if on_reveal:
             self.on_reveal = on_reveal
+        if on_identity_reveal:
+            self.on_identity_reveal = on_identity_reveal
 
     #Pedir sincronização de leilões a um peer
     def request_sync_from_peer(self, peer_host, peer_port):
@@ -338,3 +345,16 @@ class P2PNetwork:
         )
         self._broadcast(message)
         print(f"Broadcasted CLOSING of auction {auction_id}")
+
+    def broadcast_identity_reveal(self, auction_id, seller_username, winner_id):
+        #Notifica o Vencedor que o Vendedor confirmou a revelação e envia a sua identidade
+        message = P2PMessage(
+            msg_type="identity_reveal",
+            data={
+                "auction_id": auction_id,
+                "seller_username": seller_username,
+                "winner_anonymous_id": winner_id # Para o Winner saber que é para ele
+            }
+        )
+        self._broadcast(message)
+        print(f"Broadcasted Seller Identity for auction {auction_id[:8]}")
