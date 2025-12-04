@@ -1,11 +1,11 @@
 # Módulo de comunicação com o servidor central
 import socket
 import json
-import ssl
+import ssl  # Necessário para TLS/SSL
 from typing import Optional, Dict, List
 
-# Configuração do servidor
-SERVER_HOST = 'localhost'
+# Configuração do servidor - Usar o IP real do Servidor (Mac)
+SERVER_HOST = 'localhost'  # Alterar para o IP do servidor real 
 SERVER_PORT = 9999
 
 class ServerClient:
@@ -15,51 +15,50 @@ class ServerClient:
         self.server_host = server_host
         self.server_port = server_port
     
-    def _send_request(self, action: str, data: dict = {}) -> dict:
-        # Envia pedido ao servidor e retorna resposta (Função Interna)
+    def request(self, action: str, data: dict = {}) -> dict:
+        """Envia pedido ao servidor via SSL/TLS e retorna resposta"""
+        
+        SOCKET_TIMEOUT = 10 
+        
         try:
-            context = ssl.create_default_context()
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-
+            # 1. Cria contexto SSL (sem verificação de CA para ambiente de desenvolvimento)
+            ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile='../ca_cert.pem') 
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            # 2. Cria socket normal
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(10)
-
-            with context.wrap_socket(s, server_hostname=self.server_host) as s:
-                
-                s.connect((self.server_host, self.server_port))
+            s.settimeout(SOCKET_TIMEOUT)
             
-                message = {'action': action, **data}
-                s.send(json.dumps(message).encode('utf-8'))
+            # 3. Envolve o socket com SSL/TLS (O PASSO CRÍTICO)
+            wrapped_socket = ssl_context.wrap_socket(s, server_hostname=self.server_host)
             
-                # Buffer grande (65536) para garantir que recebemos chaves/certificados inteiros
-                response = json.loads(s.recv(65536).decode('utf-8'))
-                if not response:
-                    return {'status': 'error', 'message': 'No response from server'}
-                # s.close()
+            # 4. Conecta
+            wrapped_socket.connect((self.server_host, self.server_port))
             
-                return response
+            message = {'action': action, **data}
+            wrapped_socket.send(json.dumps(message).encode('utf-8'))
+            
+            # 5. Recebe resposta e decodifica
+            response = json.loads(wrapped_socket.recv(1024 * 64).decode('utf-8'))
+            wrapped_socket.close()
+            
+            return response
         
         except Exception as e:
+            # Captura o erro e retorna um formato JSON
             return {'status': 'error', 'message': str(e)}
 
-    # ========== NOVA FUNÇÃO (A QUE FALTAVA) ==========
+    # Wrapper para chamadas que vêm do main.py (como get_blind_key)
     def send_request(self, full_payload: dict) -> dict:
-        """
-        Wrapper público para enviar pedidos genéricos.
-        Necessário para o main.py pedir a 'get_blind_key'.
-        """
         action = full_payload.get('action')
-        # Separa a 'action' do resto dos dados
         data = {k: v for k, v in full_payload.items() if k != 'action'}
-        return self._send_request(action, data)
-    # =================================================
+        return self.request(action, data)
     
-    # ========== Funções de autenticação ==========
+    # ========== Funções de autenticação (TODAS USAM self.request) ==========
     
     def register_user(self, username: str, public_key: str, 
                      ip: str, port: int, password: str, signature=None) -> dict:
-        """Regista novo utilizador no servidor"""
         payload = {
             'username': username,
             'public_key': public_key,
@@ -69,41 +68,37 @@ class ServerClient:
         }
         if signature:
             payload['signature'] = signature
-        return self._send_request('register', payload)
+        return self.request('register', payload)
     
     def login_user(self, username, password, nonce_solution=None):
-        # Faz login no servidor
         payload ={
             'username': username,
             'password': password
         }
         if nonce_solution:
             payload['nonce_solution'] = nonce_solution
-        return self._send_request('login', payload)
+        return self.request('login', payload)
+    
+    def get_login_challenge(self, username):
+        return self.request('get_challenge', {'username': username})
 
     def get_ca_certificate(self) -> Optional[str]:
-        # Obtém certificado da Certificate Authority
-        response = self._send_request('get_ca_cert')
+        response = self.request('get_ca_cert')
         if response.get('status') == 'success':
             return response.get('ca_certificate')
         return None
     
     def update_user_address(self, user_id, ip, port):
-        # Atualiza IP e porta do utilizador no servidor
-        return self._send_request('update_address', {
+        return self.request('update_address', {
             'user_id': user_id,
             'ip': ip,
             'port': port
         })
     
-    def get_login_challenge(self, username):
-        return self._send_request('get_challenge', {'username': username})
-
     # ========== Funções de descoberta P2P ==========
     
     def get_users_list(self) -> List[dict]:
-        # Obtém lista de todos os utilizadores registados
-        response = self._send_request('get_users')
+        response = self.request('get_users')
         if response.get('status') == 'success':
             return response.get('users', [])
         return []
@@ -111,8 +106,7 @@ class ServerClient:
     # ========== Funções de anonimato ==========
     
     def get_blind_token(self, blinded_message: str) -> Optional[dict]:
-        # Obtém token cego para anonimato (blind signature)
-        response = self._send_request('get_blind_token', {
+        response = self.request('get_blind_token', {
             'blinded_message': blinded_message
         })
         if response.get('status') == 'success':
@@ -120,8 +114,7 @@ class ServerClient:
         return None
     
     def verify_token(self, token_hash: str) -> bool:
-        # Verifica se um token anónimo é válido
-        response = self._send_request('verify_token', {
+        response = self.request('verify_token', {
             'token_hash': token_hash
         })
         return response.get('status') == 'success'
@@ -129,14 +122,20 @@ class ServerClient:
     # ========== Funções de timestamping ==========
     
     def request_timestamp(self, bid_data: str) -> Optional[dict]:
-        # Pede timestamp confiável ao servidor
-        response = self._send_request('timestamp', {
+        response = self.request('timestamp', {
             'bid_data': bid_data
         })
         if response.get('status') == 'success':
             return response
         return None
-
+    
+    def store_identity_blob(self, auction_id: str, anonymous_token: str, encrypted_identity_blob: str) -> dict:
+        #Envia o envelope de identidade cifrado para o Notário para custódia.
+        return self.request('store_identity_blob', { 
+            'auction_id': auction_id,
+            'anonymous_token': anonymous_token,
+            'encrypted_identity_blob': encrypted_identity_blob
+        })
 
 # ========== Funções de conveniência ==========
 
@@ -153,21 +152,3 @@ def quick_timestamp(bid_data: str) -> Optional[dict]:
     client = ServerClient()
     return client.request_timestamp(bid_data)
 
-
-# ========== Exemplo de uso ==========
-
-if __name__ == "__main__":
-    # Exemplo 1: Obter certificado da CA
-    client = ServerClient()
-    ca_cert = client.get_ca_certificate()
-    if ca_cert:
-        print("CA Certificate obtained")
-    
-    # Exemplo 2: Listar utilizadores
-    users = client.get_users_list()
-    print(f"Found {len(users)} registered users")
-    
-    # Exemplo 3: Pedir timestamp para um lance
-    timestamp_info = client.request_timestamp("auction_123|100.50|token_xyz")
-    if timestamp_info:
-        print(f"Timestamp: {timestamp_info['timestamp']}")

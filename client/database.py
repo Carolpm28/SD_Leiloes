@@ -285,23 +285,33 @@ class Database:
     # ==================== HELPERS ====================
     
     def _row_to_auction(self, row) -> Auction:
-        #Converte row SQL para objeto Auction
+        # Converte row SQL para objeto Auction
         auction = Auction(
             item=row["item"],
             closing_date=row["closing_date"],
             min_bid=row["min_bid"],
-            categoria=row["categoria"] if "categoria" in row.keys() else None  
+            categoria=row["categoria"] if "categoria" in row.keys() else None
         )
         auction.auction_id = row["auction_id"]
         auction.signature = row["signature"]
         auction.anonymous_token = row["anonymous_token"] if "anonymous_token" in row.keys() else None
         auction.seller_anonymous_id = row["seller_anonymous_id"]
-        auction.is_mine = row["is_mine"]
-        auction.revealed_winner = row["revealed_winner_name"] if "revealed_winner_name" in row.keys() else None
-        auction.revealed_seller = row["revealed_seller_name"] if "revealed_seller_name" in row.keys() else None
-        # ---------------------
+        
+        
+        # Se a coluna existir na linha, anexa ao objeto Auction para ser serializado
+        if "revealed_winner_name" in row.keys():
+            auction.revealed_winner = row["revealed_winner_name"]
+        else:
+            auction.revealed_winner = None
+            
+        if "revealed_seller_name" in row.keys():
+            auction.revealed_seller = row["revealed_seller_name"]
+        else:
+            auction.revealed_seller = None
+
         return auction
     
+        
     def _row_to_bid(self, row) -> Bid:
         #Converte row SQL para objeto Bid
         bid = Bid(

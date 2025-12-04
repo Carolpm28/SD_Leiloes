@@ -1,5 +1,8 @@
 #Servidor Central do Sistema de Leilões P2P
 #Todas as chaves guardadas na BD
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import ssl
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
@@ -16,7 +19,13 @@ from cryptography.hazmat.backends import default_backend
 
 from crypto.cert_auth import AuctionCA
 from crypto.blind_signature import BlindSignature
-from crypto.challenge_manager import Challenge_Manager
+
+from .cert_auth import AuctionCA
+from .blind_signature import BlindSignature
+from .challenge_manager import Challenge_Manager
+
+SERVER_NOTARY_PRIV_KEY = None   # Chave privada do Notário
+SERVER_NOTARY_PUB_KEY = None    # Chave pública do Notário
 
 # ============================================================================
 # CONFIGURAÇÃO GLOBAL
@@ -104,6 +113,24 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Tabela para garantir o "One-Shot" reveal
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS revealed_winners (
+            auction_id TEXT PRIMARY KEY,
+            winner_username TEXT NOT NULL,
+            revealed_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS notary_vault (
+            auction_id TEXT NOT NULL,
+            anonymous_token TEXT PRIMARY KEY,  -- Usado como chave para o "envelope"
+            encrypted_identity_blob TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            -- Garante que um token só pode ser usado para um bid/leilão
+            UNIQUE(anonymous_token)
+        )
+    """)
     
     conn.commit()
     conn.close()
@@ -223,6 +250,11 @@ def init_auction_ca():
                   (ca_cert_pem, priv_key_pem))
         conn.commit()
     
+    with open("ca_cert.pem", "wb") as f:
+        f.write(SERVER_CERT_PEM)
+        
+    print("CA Certificate exported to ca_cert.pem")
+    
     conn.close()
     CA = ca
     return ca
@@ -289,6 +321,7 @@ def init_blind_signature_keys():
     BLIND_SIG = BlindSignature()
     print("Blind signature handler ready")
 
+    
 
 # ============================================================================
 # HANDLERS DAS MENSAGENS
@@ -692,6 +725,114 @@ async def handle_get_blind_key(data):
     }
 
 
+async def handle_get_notary_public_key(data):
+    # Retorna a chave pública do Notário para os clientes cifrarem a identidade
+    return {
+        'status': 'success',
+        'notary_pub_key': SERVER_NOTARY_PUB_KEY.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+    }
+
+
+async def handle_reveal_identity(data):
+    # Endpoint do Notário para decifrar a identidade do vencedor (One-Shot Rule)
+    
+    auction_id = data.get('auction_id')
+    encrypted_identity_blob = data.get('encrypted_identity_blob')
+    winning_token = data.get('winning_token')
+    seller_user_id = data.get('seller_user_id') 
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    # 1. VERIFICAÇÃO ONE-SHOT (O "Filtro")
+    c.execute('SELECT winner_username FROM revealed_winners WHERE auction_id = ?', (auction_id,))
+    if c.fetchone():
+        conn.close()
+        return {'status': 'error', 'message': 'Identity already revealed for this auction.'}
+    
+    c.execute('''
+        SELECT encrypted_identity_blob 
+        FROM notary_vault 
+        WHERE auction_id = ? AND anonymous_token = ?
+    ''', (auction_id, winning_token))
+    
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return {'status': 'error', 'message': 'Winning bid token or identity blob not found in Notary vault.'}
+        
+    encrypted_identity_blob = row[0] 
+
+    # 2. DECIFRAGEM E VALIDAÇÃO
+    try:
+        # 2.1 Decifrar o blob usando a Chave Privada do Notário
+        decrypted_bytes = SERVER_NOTARY_PRIV_KEY.decrypt(
+            bytes.fromhex(encrypted_identity_blob),
+            padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+        )
+        decrypted_identity = json.loads(decrypted_bytes.decode())
+        
+        # 2.2 Validação de Integridade
+        if decrypted_identity.get('auction_id') != auction_id:
+            raise ValueError("Auction ID mismatch in decrypted data.")
+
+        winner_username = decrypted_identity.get('username')
+        
+        # 3. REGISTO E FINALIZAÇÃO
+        # Só guarda o winner_username, garantindo a privacidade dos outros dados
+        c.execute('INSERT INTO revealed_winners VALUES (?, ?, ?)', 
+                  (auction_id, winner_username, datetime.now().isoformat()))
+        conn.commit()
+
+        response = {
+            'status': 'success', 
+            'winner_username': winner_username,
+            'message': 'Identity successfully revealed by Notary.'
+        }
+
+    except Exception as e:
+        conn.rollback()
+        response = {'status': 'error', 'message': f'Decryption/Verification Failed: {e}'}
+
+    conn.close()
+    return response
+
+async def handle_store_identity_blob(data):
+    #Recebe e armazena o envelope de identidade cifrado (encrypted_identity_blob) 
+    #ligando-o ao token anónimo do bid.
+    #Isto é feito pelo Licitante no momento do bid.
+
+    conn = None
+    try:
+        auction_id = data['auction_id']
+        anonymous_token = data['anonymous_token']
+        encrypted_identity_blob = data['encrypted_identity_blob']
+        
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        c = conn.cursor()
+        
+        c.execute('''
+            INSERT INTO notary_vault (auction_id, anonymous_token, encrypted_identity_blob)
+            VALUES (?, ?, ?)
+        ''', (auction_id, anonymous_token, encrypted_identity_blob))
+        conn.commit()
+        
+        print(f"  [NOTARY] Stored identity blob for bid token: {anonymous_token[:16]}...")
+        
+        return {'status': 'success', 'message': 'Identity blob stored by Notary'}
+    
+    except sqlite3.IntegrityError:
+        return {'status': 'error', 'message': 'Token already registered in Notary vault'}
+    except Exception as e:
+        print(f"  Notary store error: {e}")
+        return {'status': 'error', 'message': str(e)}
+    finally:
+        if conn:
+            conn.close()
+
 # ============================================================================
 # ROUTING TABLE
 # ============================================================================
@@ -706,6 +847,9 @@ HANDLERS = {
     'get_blind_key': handle_get_blind_key,
     'get_challenge': handle_get_challenge,
     'login': handle_login,
+    'GET_NOTARY_PUB_KEY': handle_get_notary_public_key,
+    'reveal_identity': handle_reveal_identity,
+    'store_identity_blob': handle_store_identity_blob,
 }
 
 
@@ -721,35 +865,24 @@ async def handle_client(reader, writer):
     
     try:
         data_bytes = await reader.read(100000)
-        data = json.loads(data_bytes.decode())
         
+        # Adiciona verificação para dados vazios, se o cliente fechar
+        if not data_bytes:
+            print("  Warning: Received empty data.")
+            return
+
+        data = json.loads(data_bytes.decode())
         action = data.get('action')
         print(f"  Action: {action}")
         
-        # Route to appropriate handler
-        if action == 'register':
-            response = await handle_register(data)
-        elif action == 'login':
-            response = await handle_login(data)
-        elif action == 'get_users':
-            response = await handle_get_users(data)
-        elif action == 'get_ca_cert':
-            response = await handle_get_ca_cert(data)  
-        elif action == 'get_blind_token':
-            response = await handle_get_blind_token(data)
-        elif action == 'timestamp':
-            response = await handle_timestamp(data)
-        elif action == 'update_address':
-            response = await handle_update_address(data)
-        elif action == 'get_blind_key':
-            response = await handle_get_blind_key(data)
-        elif action == "get_challenge":
-            response = await handle_get_challenge(data)
-        elif action == "login":
-            response = await handle_login(data)
+        # --- NOVO ROTEAMENTO: USAR DICIONÁRIO HANDLERS ---
+        if action in HANDLERS:
+            response = await HANDLERS[action](data)
         else:
+            # Se a ação não estiver no dicionário
             response = {'status': 'error', 'message': f'Unknown action: {action}'}
-        
+        # ------------------------------------------------
+
         # Send response
         response_bytes = json.dumps(response).encode()
         writer.write(response_bytes)
@@ -759,10 +892,14 @@ async def handle_client(reader, writer):
     except Exception as e:
         print(f"Error: {e}\n")
         error_response = {'status': 'error', 'message': str(e)}
-        writer.write(json.dumps(error_response).encode())
-        await writer.drain()
+        try:
+            writer.write(json.dumps(error_response).encode())
+            await writer.drain()
+        except:
+            pass
     
     finally:
+        # Garante o fecho seguro
         try:
             writer.close()
             await writer.wait_closed()
@@ -773,26 +910,59 @@ async def handle_client(reader, writer):
         
 
 
+def init_notary_keys():
+    global SERVER_NOTARY_PRIV_KEY, SERVER_NOTARY_PUB_KEY
+    try:
+        # Tenta carregar as chaves (previne geração a cada arranque)
+        with open('notary_priv.pem', 'rb') as f:
+            SERVER_NOTARY_PRIV_KEY = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+        SERVER_NOTARY_PUB_KEY = SERVER_NOTARY_PRIV_KEY.public_key()
+        
+        print("Notary keys loaded successfully.")
+    except FileNotFoundError:
+        # Se não existirem, gera e guarda
+        SERVER_NOTARY_PRIV_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+        SERVER_NOTARY_PUB_KEY = SERVER_NOTARY_PRIV_KEY.public_key()
+        
+        with open('notary_priv.pem', 'wb') as f:
+            f.write(SERVER_NOTARY_PRIV_KEY.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        print("New Notary keys generated and saved.")
+
+    # Guardar a chave pública para que os clientes a possam descarregar
+    with open('notary_pub.pem', 'wb') as f:
+        f.write(SERVER_NOTARY_PUB_KEY.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ))
+
+
 async def main():
-    #Função principal do servidor
+    # Função principal do servidor
     print("=" * 60)
     print("SERVIDOR DE LEILÕES P2P")
     print("=" * 60)
     
     # Inicializar componentes
-    print("\n[1/5] Initializing database...")
+    print("\n[1/6] Initializing database...")
     init_db()
     
-    print("[2/5] Initializing Certificate Authority...")
+    print("[2/6] Initializing Certificate Authority...")
     init_auction_ca()
     
-    print("[3/5] Initializing Blind Signature system...")
+    print("[3/6] Initializing Blind Signature system...")
     init_blind_signature_keys()
     
-    print("[4/5] Initializing Time-stamping service...")
+    print("[4/6] Initializing Notary system...") 
+    init_notary_keys()                           
+    
+    print("[5/6] Initializing Time-stamping service...")
     init_timestamp_service()
 
-    print("[5/5] Initializing SSL keys...")
+    print("[6/6] Initializing SSL keys...")
     init_ssl_keys()
     
     ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)

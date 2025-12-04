@@ -23,7 +23,9 @@ class CryptoManager:
         self.public_key = None
         self.certificate = None
         self.ca_cert = None
-        self.blind_pub_key = None 
+        self.blind_pub_key = None
+        self._notary_key_loaded = False
+        self.notary_pub_key = None
         
         # Criar diretório para chaves
         os.makedirs(keys_dir, exist_ok=True)
@@ -35,6 +37,63 @@ class CryptoManager:
         
 
     # === FUNÇÕES PARA REVELAÇÃO DE IDENTIDADE ===
+
+    def _fetch_notary_public_key(self):
+        # Vai buscar a chave pública do Notário ao servidor
+        try:
+            response = self.server_client.request('GET_NOTARY_PUB_KEY', {}) # Assumindo um novo endpoint no server.py
+            
+            if response and response.get('status') == 'success':
+                pub_key_pem = response.get('notary_pub_key')
+                self.notary_pub_key = serialization.load_pem_public_key(
+                    pub_key_pem.encode(),
+                    backend=self.backend
+                )
+                print("Notary Public Key obtained.")
+                return True
+            else:
+                print(f"Failed to fetch Notary Public Key: {response}")
+                return False
+        except Exception as e:
+            print(f"Error fetching Notary Public Key: {e}")
+            return False
+
+    def _ensure_notary_key(self):
+        # Carrega a chave do Notário apenas quando necessário
+        if not self._notary_key_loaded:
+            self._fetch_notary_public_key()
+            self._notary_key_loaded = True
+    
+    def encrypt_identity_for_notary(self, auction_id: str, bid_value: float) -> str:
+        # Cifra a identidade real (Certificado) usando a Chave Pública do Notário
+        self._ensure_notary_key()
+        
+        if not self.notary_pub_key or not self.certificate:
+            raise Exception("Cannot encrypt identity: Notary key or user certificate missing.")
+            
+        # 1. Cria o pacote JSON (com assinatura real para não-repúdio)
+        identity_data = {
+            "user_id": self.user_id,
+            "username": self.username,
+            "auction_id": auction_id,
+            "bid_value": bid_value,
+            # (A Assinatura real do Bid já foi feita e verificada pelo servidor, aqui incluímos o username/ID)
+        }
+        
+        data_bytes = json.dumps(identity_data).encode('utf-8')
+        
+        # 2. Cifra o pacote com a chave pública do Notário
+        encrypted_bytes = self.notary_pub_key.encrypt(
+            data_bytes,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        
+        # 3. Retorna o blob cifrado em formato hex
+        return encrypted_bytes.hex()
     
     def get_certificate(self):
         """Retorna o certificado para enviar ao vendedor"""

@@ -360,9 +360,7 @@ def create_auction():
 def get_auction(auction_id):
     #Retorna detalhes de um leilão específico
     auction = db.get_auction(auction_id)
-
-    if auction:
-        print(f"\nDB READ DEBUG: {auction.__dict__}")
+    
     
     if not auction:
         return jsonify({"error": "Auction not found"}), 404
@@ -437,35 +435,39 @@ def create_bid():
         return jsonify({"error": "Não pode dar bid no próprio leilão!"}), 400
     
     try:
-        # 1. OBTER CHAVE BLIND (CORREÇÃO DO ERRO)
+        # Se a chave Notário/Blind falhar, o processo para aqui.
         if not get_or_update_blind_key():
              return jsonify({"error": "Could not obtain server blind key"}), 500
 
         print("Requesting anonymous token for bid from server...")
-
-        # 2. Gerar mensagem única para o token
         token_message = f"bid_token_{uuid.uuid4()}"
         
-        # 3. Cegar a mensagem usando server_blind_pub_key
+        # 2. Cegar, pedir assinatura e Descegar (Resultado em anonymous_token)
         blinded_msg, r, m_hash = bs.blind(token_message, server_blind_pub_key)
-
-        # 4. Pedir assinatura cega ao servidor
         token_response = server.get_blind_token(str(blinded_msg))
         
         if not token_response or token_response.get('status') != 'success':
             return jsonify({"error": "Failed to get anonymous token"}), 500
         
-        # 5. Remover cegueira (Unblind) usando a chave correta
         blind_sig = int(token_response['blind_signature'])
         signature = bs.unblind(blind_sig, r, server_blind_pub_key)
-
-        # 6. Criar token no formato "hash:signature"
-        anonymous_token = bs.signature_to_token(m_hash, signature)  
-
-        print(f"Bid token criado: {anonymous_token[:50]}...")
+        anonymous_token = bs.signature_to_token(m_hash, signature)
         
-        # 7. PEDIR TIMESTAMP CONFIÁVEL AO SERVIDOR
-        # O timestamp garante a ordem dos lances em caso de empate
+        # --- PASSO 2: CIFRAR IDENTIDADE PARA O SERVIDOR NOTÁRIO ---
+        encrypted_identity_blob = crypto.encrypt_identity_for_notary(auction_id, bid_value)
+
+        print("Storing identity blob with Notary...")
+        store_response = server.store_identity_blob(
+            auction_id, 
+            anonymous_token, 
+            encrypted_identity_blob
+        )
+        if store_response.get('status') != 'success':
+            # Se o Notário falhar, o bid não deve ser feito.
+            raise Exception(f"Failed to store identity blob with Notary: {store_response.get('message', 'Unknown error')}")
+        print("Identity blob successfully stored by Notary.")
+        
+        # --- PASSO 3: OBTER TIMESTAMP ---
         bid_data = f"{auction_id}|{bid_value}|{token_message}"
         timestamp_response = server.request_timestamp(bid_data)
         
@@ -474,20 +476,18 @@ def create_bid():
         
         timestamp = timestamp_response.get('timestamp')
         timestamp_signature = timestamp_response.get('signature')
-        
-        print(f"Timestamp obtained: {timestamp}")
-        
-        # 8. Criar objeto Bid
+       
+        # --- PASSO 4: CRIAR E ENVIAR O BID FINAL ---
         bid = Bid(
             auction_id=auction_id,
             value=bid_value
         )
         
-        # 9. Preencher dados de segurança e anonimato
         bid.anonymous_token = anonymous_token
         bid.bidder_anonymous_id = crypto.get_anonymous_id()
         bid.timestamp = timestamp
         bid.timestamp_signature = timestamp_signature
+        bid.encrypted_identity_blob = encrypted_identity_blob # O ENVELOPE SELADO
         
         # 10. Guardar localmente (is_mine=True)
         db.save_bid(bid, is_mine=True)
@@ -807,101 +807,100 @@ def claim_auction_win(auction_id):
     }), 200
 
 def on_closed_received(data):
-    #CALLBACK DO VENCEDOR
+    # Callback quando recebe notificação de fecho de leilão
     auction_id = data.get('auction_id')
     winning_token = data.get('winning_token')
-    seller_contact = data.get('seller_contact')
     
-    # Verificar se ganhei
+    print(f"\nAVISO: Leilão {auction_id[:8]}... fechou. Verificando token...")
+    
+    # Verificar se EU sou o vencedor (a única coisa que interessa)
     my_bids = db.get_my_bids()
     i_won = False
     for bid in my_bids:
+        # Nota: O Vendedor devia enviar o token do vencedor (que o Comprador confere com os seus bids)
         if bid.auction_id == auction_id and bid.anonymous_token == winning_token:
             i_won = True
             break
             
     if i_won:
-        print(f"\nGanhaste o leilão! Contactando vendedor em {seller_contact}...")
-        try:
-            payload = {
-                "winning_token": winning_token,
-                "certificate": crypto.get_certificate()
-            }
-            url = f"http://{seller_contact}/api/auctions/{auction_id}/claim"
-            res = requests.post(url, json=payload, timeout=5)
-            
-            if res.status_code == 200:
-                seller_cert = res.json().get('seller_certificate')
-                seller_name = crypto.extract_name_from_cert(seller_cert)
-                print(f" Vendedor Revelado: {seller_name}")
-                
-                # Guardar na BD
-                db.set_revealed_identity(auction_id, seller_name=seller_name)
-            else:
-                print(f"Erro no handshake: {res.text}")
-        except Exception as e:
-            print(f"Falha ao contactar vendedor: {e}")
+        print("\nParabens! Ganhaste o leilão!")
+        print("A tua identidade está segura com o Servidor Notário.")
+        print("Faz Refresh na página para ver a identidade do Vendedor.")
+        # A identidade do Vendedor será revelada quando o Vendedor contactar o Notário 
+        # e o Servidor atualizar os dados na rede.
+    else:
+        print("Fecho de leilão recebido. Não é o nosso bid.")
 
 
 # ==================== STARTUP ====================
 
 def check_auctions_thread():
-    #THREAD DO VENDEDOR: Verifica periodicamente se os meus leilões acabaram.
-    #Se acabaram, calcula o vencedor e avisa a rede.
+    #THREAD DO VENDEDOR: Verifica periodicamente se os meus leilões acabaram. Se acabaram, calcula o vencedor e pede a revelação da identidade ao Servidor Notário.
+ 
     processed = set()
     discovery_timer = 0
     
+    # A variável API_PORT é usada para garantir que a thread tem acesso ao número da porta
+    API_PORT = globals().get('API_PORT', 5001) 
+    
     while True:
         time.sleep(5) # Verifica a cada 5 segundos
+        
+        # Lógica de Descoberta de Peers (Corre a cada 30 segundos)
         discovery_timer += 1
-        if discovery_timer >= 6:
+        if discovery_timer >= 6: 
             try:
-                # Pergunta ao servidor quem está online
                 users = server.get_users_list()
                 for user in users:
-                    # Se não sou eu, adiciona
                     if user.get('user_id') != crypto.user_id:
                          network.add_peer(user['ip'], user['port'])
                 discovery_timer = 0
             except:
                 pass
+
         try:
-            # Se a DB ainda não estiver pronta ou fechada
-            if not db: continue
+            # Se a DB ainda não estiver pronta ou o utilizador não autenticado
+            if not db or not crypto.user_id: continue
 
             my_auctions = db.get_my_auctions()
             now = datetime.utcnow()
             
             for auction in my_auctions:
-                # Se já fechou e ainda não processámos
                 close_date = datetime.fromisoformat(auction.closing_date)
                 
+                # 1. Detetar Fecho
                 if now > close_date and auction.auction_id not in processed:
                     
                     winning_bid = db.get_winning_bid(auction.auction_id)
                     
-                    if winning_bid:
-                        print(f"\n[AUTO] Encerrando leilão '{auction.item}'. Anunciando vencedor...")
+                    # 2. Verificar se existe Bid (CORREÇÃO)
+                    # NOTA: O winning_bid.encrypted_identity_blob será SEMPRE None para um bid recebido
+                    if winning_bid: 
+                        print(f"\n[AUTO] Encerrando leilão '{auction.item}'. A pedir revelação ao Notário...")
                         
-                        # Descobrir o meu IP para o vencedor me contactar
-                        import socket
-                        try:
-                            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                            s.connect(("8.8.8.8", 80))
-                            my_ip = s.getsockname()[0]
-                            s.close()
-                        except:
-                            my_ip = '127.0.0.1'
+                        # --- CHAMADA AO SERVIDOR NOTÁRIO (CORRIGIDA) ---
+                        
+                        response = server.send_request({
+                            'action': 'reveal_identity',
+                            'auction_id': auction.auction_id,
+                            'winning_token': winning_bid.anonymous_token, 
+                            # O Notário deve usar o token para encontrar o BLOB no seu VAULT
+                            'seller_user_id': crypto.user_id 
+                        })
+                        
+                        # 3. Processar Resposta
+                        if response and response.get('status') == 'success':
+                            winner_name = response.get('winner_username')
+                            print(f"Identidade revelada: {winner_name} ")
                             
-                        # O vencedor deve contactar a minha API REST (não a porta P2P)
-                        contact_info = f"{my_ip}:5001"
+                            # 4. Atualizar a Base de Dados local para mostrar o vencedor no frontend
+                            db.set_revealed_identity(auction.auction_id, winner_name=winner_name)
+                        else:
+                            print(f"Revelação recusada: {response.get('message', 'Erro desconhecido')} ")
+                            
+                        # -------------------------------------------------------------
                         
-                        network.broadcast_auction_closed(
-                            auction.auction_id,
-                            winning_bid.anonymous_token,
-                            contact_info
-                        )
-                    else:
+                    else: # Se não há bids (winning_bid é None)
                         print(f"\n[AUTO] Leilão '{auction.item}' fechou sem licitações.")
                     
                     processed.add(auction.auction_id)
