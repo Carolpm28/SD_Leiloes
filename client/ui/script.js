@@ -194,7 +194,8 @@ function formatDateTime(dateString) {
         month: '2-digit',
         year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        second: '2-digit'
     });
 }
 
@@ -1224,19 +1225,38 @@ async function loadAuctionBids(auctionId) {
             return;
         }
         
-        // Ordenar do mais recente para o mais antigo
-        bids.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        // 1. Encontrar o Vencedor (Maior Valor > Mais Antiga)
+        const highestBid = bids.reduce((prev, current) => {
+            if (current.value > prev.value) return current;
+            if (current.value === prev.value) {
+                // Em empate de valor, ganha a mais antiga (menor data)
+                return new Date(current.timestamp) < new Date(prev.timestamp) ? current : prev;
+            }
+            return prev;
+        }, bids[0]);
+
+        // 2. Ordenar lista 
+        bids.sort((a, b) => {
+            // Primeiro critério: Valor (Do maior para o menor)
+            if (b.value !== a.value) {
+                return b.value - a.value;
+            }
+            // Segundo critério: Timestamp (Do mais antigo para o mais recente)
+            return new Date(a.timestamp) - new Date(b.timestamp);
+        });
         
         // Mostrar bid mais alto
-        const highestBid = bids[0];
         document.getElementById('detalhes-bid-container').style.display = 'block';
         document.getElementById('detalhes-bid-valor').textContent = `€${highestBid.value.toFixed(2)}`;
         document.getElementById('detalhes-bid-info').textContent = 
-            `${bids.length} licitação(ões) • Última há ${getTimeAgo(highestBid.timestamp)}`;
+            `${bids.length} licitação(ões) • Vencedora em ${formatDateTime(highestBid.timestamp)}`;
+            
         
         // Renderizar timeline
-        timeline.innerHTML = bids.map((bid, index) => {
-            const isWinning = index === 0;
+        timeline.innerHTML = bids.map((bid) => {
+
+            const isWinning = (bid.value === highestBid.value && bid.timestamp === highestBid.timestamp);
+            
             const isMine = bid.is_mine === 1;
             
             let classes = 'bid-item';
@@ -1253,7 +1273,7 @@ async function loadAuctionBids(auctionId) {
                     <div class="bid-content">
                         <div class="bid-value">€${bid.value.toFixed(2)}</div>
                         <div class="bid-info">
-                            <span>${getTimeAgo(bid.timestamp)}</span>
+                            <span>${formatDateTime(bid.timestamp)}</span>
                             ${badges}
                         </div>
                     </div>

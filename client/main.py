@@ -228,7 +228,20 @@ def on_sync_received(sync_data):
     
     print(f"Sincronização: {synced_auctions} leilões, {synced_bids} bids novos")
 
-
+def on_reveal_received(reveal_data):
+    auction_id = reveal_data.get('auction_id')
+    winner_name = reveal_data.get('winner_name')
+    seller_name = reveal_data.get('seller_name')
+    
+    # 1. Atualizar o registo do leilão local
+    db.set_revealed_identity(auction_id, winner_name=winner_name, seller_name=seller_name)
+    
+    # 2. Verificar se o leilão era um dos meus bids vencedores (para notificar o frontend)
+    my_winning_bid = db.get_winning_bid(auction_id)
+    if my_winning_bid and my_winning_bid.is_mine:
+         print(f"\n------O Vendedor do leilão {auction_id[:8]}... foi revelado: {seller_name}")
+    else:
+         print(f"\n------Revelação recebida. Vendedor: {seller_name}, Vencedor: {winner_name}")
 
 
 # ==================== API REST ====================
@@ -426,9 +439,9 @@ def create_bid():
         return jsonify({"error": f"Bid deve ser >= {auction.min_bid}€"}), 400
 
     # Verificar que bid > bids anteriores
-    highest_bid = db.get_highest_bid(auction_id)
-    if highest_bid and bid_value <= highest_bid.value:
-        return jsonify({"error": f"Bid deve ser > {highest_bid.value}€"}), 400
+    #highest_bid = db.get_highest_bid(auction_id)
+    #if highest_bid and bid_value <= highest_bid.value:
+        #return jsonify({"error": f"Bid deve ser > {highest_bid.value}€"}), 400
 
     # Verificar que não é o próprio leilão
     if db.is_my_auction(auction_id):
@@ -878,7 +891,6 @@ def check_auctions_thread():
                     if winning_bid: 
                         print(f"\n[AUTO] Encerrando leilão '{auction.item}'. A pedir revelação ao Notário...")
                         
-                        # --- CHAMADA AO SERVIDOR NOTÁRIO (CORRIGIDA) ---
                         
                         response = server.send_request({
                             'action': 'reveal_identity',
@@ -894,7 +906,17 @@ def check_auctions_thread():
                             print(f"Identidade revelada: {winner_name} ")
                             
                             # 4. Atualizar a Base de Dados local para mostrar o vencedor no frontend
-                            db.set_revealed_identity(auction.auction_id, winner_name=winner_name)
+                            db.set_revealed_identity(auction.auction_id, winner_name=winner_name, seller_name=crypto.username)
+
+                            network.broadcast_message(
+                                'REVEAL_INFO', 
+                                {
+                                    'auction_id': auction.auction_id,
+                                    'winner_name': winner_name,
+                                    'seller_name': crypto.username 
+                                }
+                            )
+
                         else:
                             print(f"Revelação recusada: {response.get('message', 'Erro desconhecido')} ")
                             
@@ -987,7 +1009,8 @@ if __name__ == '__main__':
         on_auction=on_auction_received,
         on_bid=on_bid_received,
         on_sync_received=on_sync_received,
-        on_auction_closed=on_closed_received  
+        on_auction_closed=on_closed_received,
+        on_reveal=on_reveal_received
     )
     
     # Iniciar a thread do vendedor (para fechar leilões automaticamente) 

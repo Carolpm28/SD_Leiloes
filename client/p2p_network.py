@@ -138,6 +138,13 @@ class P2PNetwork:
                             if self.on_auction_closed:
                                 self.on_auction_closed(data)
                         
+                        elif msg_type == "REVEAL_INFO": 
+                            # Mensagem que anuncia a revelação do Vencedor e Vendedor
+                            print(f"Received reveal info broadcast from {address}")
+                            data = message_dict["data"]
+                            if hasattr(self, 'on_reveal') and self.on_reveal:
+                                self.on_reveal(data)
+                        
                         else:
                             print(f"Tipo de mensagem desconhecido: {msg_type}")
                     
@@ -235,7 +242,7 @@ class P2PNetwork:
         #Retorna lista de peers conectados
         return self.peers.copy()
     
-    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None, on_auction_closed=None):
+    def register_callbacks(self, on_auction=None, on_bid=None, on_sync_received=None, on_auction_closed=None, on_reveal=None):
         #Define funções callback para processar mensagens
         if on_auction:
             self.on_auction_received = on_auction
@@ -247,6 +254,8 @@ class P2PNetwork:
             self.on_sync_received = on_sync_received
         if on_auction_closed:
             self.on_auction_closed = on_auction_closed
+        if on_reveal:
+            self.on_reveal = on_reveal
 
     #Pedir sincronização de leilões a um peer
     def request_sync_from_peer(self, peer_host, peer_port):
