@@ -863,6 +863,16 @@ async def handle_client(reader, writer):
     addr = writer.get_extra_info('peername')
     print(f"→ Connection from {addr}")
     
+    # --- SONDAGEM DE DIAGNÓSTICO ---
+    ssl_object = writer.get_extra_info('ssl_object')
+    if ssl_object:
+        print(f"[SSL DEBUG] Conexão segura estabelecida com: {ssl_object.version()}")
+    else:
+        print("[SSL DEBUG] Conexão NÃO segura (texto limpo)")
+    # -------------------------------
+
+    print(f"→ Connection from {addr}")
+
     try:
         data_bytes = await reader.read(100000)
         

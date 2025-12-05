@@ -181,11 +181,38 @@ def on_bid_received(bid: Bid):
                 
             print("Token verificado com sucesso")
 
+
         except Exception as e:
             print(f"Erro: {e}")
             import traceback
             traceback.print_exc()
             return # Se deu erro, não guarda
+        
+        try:
+            expected_data = f"{bid.auction_id}|{bid.value}|{bid.anonymous_token}"
+            ca_cert_obj = crypto.get_ca_certificate()
+            server_pub_key_pem = ca_cert_obj.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ).decode()
+
+            data_to_verify = f"{expected_data}|{bid.timestamp}"
+        
+            is_integrity_valid = crypto.verify_signature(
+                data_to_verify, 
+                bid.timestamp_signature, # Assinatura que veio na Bid
+                server_pub_key_pem       # Chave Pública do Servidor
+            )
+
+            if not is_integrity_valid:
+                print("ALERTA: Falha na integridade da Bid! Valor ou Timestamp adulterados.")
+                return # Rejeitar bid corrupta
+
+            print("✓ Integridade da Bid verificada (Timestamp válido)")
+
+        except Exception as e:
+            print(f"Erro a verificar integridade: {e}")
+            return
     
     db.save_bid(bid, is_mine=False)
     print(f"Bid recebido: €{bid.value:.2f}")
@@ -496,7 +523,7 @@ def create_bid():
         print("Identity blob successfully stored by Notary.")
         
         # --- PASSO 3: OBTER TIMESTAMP ---
-        bid_data = f"{auction_id}|{bid_value}|{token_message}"
+        bid_data = f"{auction_id}|{bid_value}|{anonymous_token}"
         timestamp_response = server.request_timestamp(bid_data)
         
         if not timestamp_response:

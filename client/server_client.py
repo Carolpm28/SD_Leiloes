@@ -35,7 +35,9 @@ class ServerClient:
             
             # 4. Conecta
             wrapped_socket.connect((self.server_host, self.server_port))
-            
+            protocol_version = wrapped_socket.version()
+            cipher_suite = wrapped_socket.cipher()
+            print(f"Connected with {protocol_version} using {cipher_suite}")
             message = {'action': action, **data}
             wrapped_socket.send(json.dumps(message).encode('utf-8'))
             
