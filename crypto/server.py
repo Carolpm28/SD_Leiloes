@@ -132,7 +132,7 @@ def init_db():
         )
     """)
     c.execute("""
-        CREATE TABLE IF NOT EXISTS auctions (
+        CREATE TABLE IF NOT EXISTS auction_owners (
               auction_id TEXT PRIMARY KEY,
               owner_public_key TEXT NOT NULL,
               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -449,7 +449,7 @@ async def handle_register_auction(data):
         c = conn.cursor()
 
         c.execute('''
-            INSERT INTO auctions (auction_id, owner_public_key)
+            INSERT INTO auction_owners (auction_id, owner_public_key)
             VALUES (?, ?)
                   ''', (auction_id, owner_public_key_pem))
         conn.commit()

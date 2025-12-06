@@ -63,6 +63,7 @@ class Bid:
         self.bidder_cert = None
         self.bidder_anonymous_id = None
         self.encrypted_identity_blob = None
+        self.timestamp_signature = None
         
     def to_dict(self):
         return {
@@ -74,7 +75,8 @@ class Bid:
             "anonymous_token": self.anonymous_token,
             "bidder_cert": self.bidder_cert,
             "bidder_anonymous_id": self.bidder_anonymous_id,
-            "encrypted_identity_blob": self.encrypted_identity_blob 
+            "encrypted_identity_blob": self.encrypted_identity_blob,
+            "timestamp_signature": self.timestamp_signature
         }
     
     @staticmethod
@@ -90,6 +92,7 @@ class Bid:
         bid.bidder_cert = data.get("bidder_cert")
         bid.bidder_anonymous_id = data.get("bidder_anonymous_id")
         bid.encrypted_identity_blob = data.get("encrypted_identity_blob")
+        bid.timestamp_signature = data.get("timestamp_signature")
         return bid
 
 
