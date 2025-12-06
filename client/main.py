@@ -278,16 +278,21 @@ def on_identity_reveal_received(data):
     
     # 1. Verifica: Sou eu o Vencedor deste bid?
     if winner_anon_id == crypto.get_anonymous_id():
-        seller_name = data.get('seller_username')
+        encrypted_seller_name = data.get('seller_username')
         auction_id = data.get('auction_id')
         
         print(f"\nRecebida Identidade do Vendedor: {seller_name}")
-        
+        # Desencriptar o nome do vendedor
+        seller_name = crypto.decrypt_message(encrypted_seller_name)
+
         # 2. Guardar a identidade do Vendedor na minha base de dados
         # A função set_revealed_identity usa seller_name=seller_name
-        db.set_revealed_identity(auction_id, seller_name=seller_name)
-        
-        print(f"Nome do Vendedor ({seller_name}) guardado para leilão {auction_id[:8]}.")
+        if seller_name:
+            print(f"Recebida Identidade do Vendedor (decifrada): {seller_name}")
+            db.set_revealed_identity(auction_id, seller_name=seller_name)
+            print(f"Nome do Vendedor ({seller_name}) guardado para leilão {auction_id[:8]}.")
+        else:
+            print("Falha ao decifrar o nome do vendedor.")
 # ==================== API REST ====================
 
 # --- SERVIR FRONTEND ---
@@ -999,13 +1004,20 @@ def check_auctions_thread():
                         # 3. Processar Resposta
                         if response and response.get('status') == 'success':
                             winner_name = response.get('winner_username')
+                            winner_pub_key = response.get('winner_public_key')
                             # winning_bid (objeto Bid local, obtido no início do loop)
                             print(f"     Identidade revelada pelo notario: {winner_name} ")
 
                             if winning_bid and winning_bid.bidder_anonymous_id:
+
+                                encrypted_seller_name = crypto.encrypt_message(
+                                    crypto.username,
+                                    winner_pub_key
+                                )
+
                                 network.broadcast_identity_reveal(
                                     auction.auction_id,
-                                    crypto.username,                    # Nome do Vendedor (você)
+                                    encrypted_seller_name,                    # Nome do Vendedor (você)
                                     winning_bid.bidder_anonymous_id     # ID anónimo do Vencedor (filtro)
                                 )
                                 print(f"Broadcasted Seller Identity to anonymous ID: {winning_bid.bidder_anonymous_id[:8]}...")

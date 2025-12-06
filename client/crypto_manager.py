@@ -64,8 +64,6 @@ class CryptoManager:
             self._fetch_notary_public_key()
             self._notary_key_loaded = True
 
-    # Em crypto_manager.py (adiciona isto junto aos outros métodos de chaves)
-
     def generate_ephemeral_keys(self):
         """
         Gera um par de chaves RSA temporário para um leilão específico.
@@ -460,5 +458,43 @@ class CryptoManager:
         )
         return hashlib.sha256(pub_pem).hexdigest()[:16]
 
+    # ==================== ENCRIPTACAO DE MENSAGENS ====================
+
+    def encrypt_message(self, message: str, public_key_pem: str) -> str:
+        """Cifra uma string usando uma chave pública externa"""
+        try:
+            pub_key = serialization.load_pem_public_key(
+                public_key_pem.encode() if isinstance(public_key_pem, str) else public_key_pem,
+                backend=self.backend
+            )
+            encrypted = pub_key.encrypt(
+                message.encode('utf-8'),
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            return encrypted.hex()
+        except Exception as e:
+            print(f"Encryption error: {e}")
+            return None
+
+    def decrypt_message(self, ciphertext_hex: str) -> str:
+        """Decifra uma mensagem hex usando a MINHA chave privada"""
+        try:
+            ciphertext = bytes.fromhex(ciphertext_hex)
+            plaintext = self.private_key.decrypt(
+                ciphertext,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            return plaintext.decode('utf-8')
+        except Exception as e:
+            print(f"Decryption error: {e}")
+            return None
 if __name__ == "__main__":
     print("=== CryptoManager Test ===")

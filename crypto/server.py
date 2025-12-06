@@ -850,7 +850,15 @@ async def handle_reveal_identity(data):
             raise ValueError("Auction ID mismatch.")
 
         winner_username = decrypted_identity.get('username')
+        winner_user_id = decrypted_identity.get('user_id')
         
+        # --- Buscar public key do vencedor ---
+        c.execute('SELECT public_key FROM users WHERE user_id = ?', (winner_user_id,))
+        row_key = c.fetchone
+        if not row_key:
+            raise ValueError("Winner user ID not found.")
+        winner_public_key = row_key[0]
+
         # Registar revelação
         c.execute('INSERT INTO revealed_winners VALUES (?, ?, ?)', 
                   (auction_id, winner_username, datetime.now().isoformat()))
@@ -859,6 +867,7 @@ async def handle_reveal_identity(data):
         response = {
             'status': 'success', 
             'winner_username': winner_username,
+            'winner_public_key': winner_public_key,
             'message': 'Identity successfully revealed by Notary.'
         }
 
