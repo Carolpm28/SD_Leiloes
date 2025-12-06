@@ -72,6 +72,14 @@ class ServerClient:
             payload['signature'] = signature
         return self.request('register', payload)
     
+    def register_auction(self, auction_id, owner_public_key, anonymous_token):
+        """Regista o leilão e a chave pública no Notário (Servidor)"""
+        return self.request('register_auction', {
+            'auction_id': auction_id,
+            'owner_public_key': owner_public_key,
+            'anonymous_token': anonymous_token
+        })
+    
     def login_user(self, username, password, nonce_solution=None):
         payload ={
             'username': username,

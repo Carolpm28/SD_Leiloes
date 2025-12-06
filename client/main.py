@@ -30,6 +30,8 @@ from crypto.keys import KeyManager
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 
 # ==================== INICIALIZAÇÃO ====================
 
@@ -331,7 +333,7 @@ def get_my_auctions():
 
 @app.route('/api/auctions', methods=['POST'])
 def create_auction():
-    # Cria novo leilão com anonimato e Blind Signature corrigida
+    # Cria novo leilão com Anonimato, Chaves Efémeras e Registo de Propriedade
     
     # Validar autenticação
     if not crypto.user_id:
@@ -348,7 +350,7 @@ def create_auction():
         return jsonify({"error": "Item and closing date are required"}), 400
     
     try:
-        print("\nRequesting anonymous token from server...")
+        print("\n[Auction] Starting creation process...")
         
         # 1. Garantir que temos a chave pública correta do servidor
         if not get_or_update_blind_key():
@@ -357,28 +359,21 @@ def create_auction():
         # 2. Gerar mensagem para o token
         message = f"AUCTION_{secrets.token_hex(16)}"
         
-        # 3. Cegar a mensagem usando a chave de BLIND SIGNATURE (e não a da CA)
-        # O 'server_blind_pub_key' garante que o módulo matemático n é compatível
+        # 3. Blind Signature Flow
+        print("[Auction] Requesting anonymous token...")
         blinded_msg, r, m_hash = bs.blind(message, server_blind_pub_key)
-
-        # 4. Pedir assinatura cega ao servidor (envia o número cego como string)
+        
         token_response = server.get_blind_token(str(blinded_msg)) 
 
         if token_response and token_response.get('status') == 'success':
             blind_sig = int(token_response['blind_signature'])
-            
-            # 5. Remover cegueira (Unblind) usando a MESMA chave pública
-            # Isto corrige o OverflowError porque os módulos n coincidem
             signature = bs.unblind(blind_sig, r, server_blind_pub_key)
-
-            # 6. Criar token no formato "hash:signature"
             anonymous_token = bs.signature_to_token(m_hash, signature) 
-
-            print(f"Token criado com sucesso: {anonymous_token[:50]}...")
+            print(f"[Auction] Token obtido: {anonymous_token[:20]}...")
         else:
             raise Exception("Server refused to sign blind token")
         
-        # 7. Criar objeto Auction
+        # 4. Criar objeto Auction (inicial)
         auction = Auction(
             item=item,
             closing_date=closing_date,
@@ -386,16 +381,46 @@ def create_auction():
             categoria=categoria
         )
 
+        # 5. Gerar Chaves Efémeras (O "Cofre" do Leilão)
+        print("[Auction] Generating ephemeral keys...")
+        ephemeral_priv, ephemeral_pub = crypto.generate_ephemeral_keys()
+        
+        # 6. Guardar a Chave Privada LOCALMENTE (Fundamental para revelar vencedor depois)
+        keys_path = os.path.join("keys", "auctions")
+        os.makedirs(keys_path, exist_ok=True)
+        
+        priv_key_file = os.path.join(keys_path, f"{auction.auction_id}.key")
+        with open(priv_key_file, "w") as f:
+            f.write(ephemeral_priv)
+            
+        # 7. Configurar dados de segurança no objeto Auction
+        auction.ephemeral_public_key = ephemeral_pub
         auction.anonymous_token = anonymous_token
         auction.seller_anonymous_id = crypto.get_anonymous_id()
         
-        # 8. Guardar na base de dados local
+        # 8. REGISTAR NO NOTÁRIO (Prova de Propriedade)
+        # Dizemos ao servidor: "Este leilão é meu, validado por esta chave pública"
+        print("[Auction] Registering ownership with Notary...")
+        reg_response = server.register_auction(
+            auction.auction_id,
+            ephemeral_pub,      # A chave que prova quem manda
+            anonymous_token
+        )
+        
+        if reg_response.get('status') != 'success':
+            # Se falhar o registo, abortar (senão nunca conseguirás revelar o vencedor)
+            os.remove(priv_key_file) # Limpar chave orfã
+            return jsonify({"error": f"Notary registration failed: {reg_response.get('message')}"}), 500
+        
+        print("[Auction] Ownership registered successfully.")
+
+        # 9. Guardar na base de dados local
         db.save_auction(auction, is_mine=True)
         
-        # 9. Broadcast P2P
+        # 10. Broadcast P2P
         network.broadcast_auction(auction)
         
-        print(f"Auction broadcasted anonymously: {item}")
+        print(f"[Auction] Broadcasted anonymously: {item}")
         
         return jsonify({
             "auction_id": auction.auction_id,
@@ -934,12 +959,41 @@ def check_auctions_thread():
                         print(f"\n[AUTO] Encerrando leilão '{auction.item}'. A pedir revelação ao Notário...")
                         
                         
+                        try:
+                            # 1. Carregar a Chave Privada Efémera do disco
+                            key_path = f"keys/auctions/{auction.auction_id}.key"
+                            if not os.path.exists(key_path):
+                                print(f"Erro: Chave privada do leilão perdida em {key_path}")
+                                # Marcar como processado para não tentar sempre
+                                processed.add(auction.auction_id) 
+                                continue
+
+                            with open(key_path, "rb") as f:
+                                auction_priv_key = serialization.load_pem_private_key(
+                                    f.read(), password=None, backend=default_backend()
+                                )
+                            
+                            # 2. Assinar "auction_id|winning_token"
+                            payload_to_sign = f"{auction.auction_id}|{winning_bid.anonymous_token}".encode('utf-8')
+                            
+                            signature = auction_priv_key.sign(
+                                payload_to_sign,
+                                padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+                                hashes.SHA256()
+                            ).hex()
+                            
+                        except Exception as e:
+                            print(f"Erro ao assinar pedido de revelação: {e}")
+                            continue
+                        # ------------------------------
+
+                        # 3. Enviar pedido COM assinatura
                         response = server.send_request({
                             'action': 'reveal_identity',
                             'auction_id': auction.auction_id,
-                            'winning_token': winning_bid.anonymous_token, 
-                            # O Notário deve usar o token para encontrar o BLOB no seu VAULT
-                            'seller_user_id': crypto.user_id 
+                            'winning_token': winning_bid.anonymous_token,
+                            'seller_user_id': crypto.user_id,
+                            'signature': signature  # <--- ENVIAR A PROVA
                         })
                         
                         # 3. Processar Resposta

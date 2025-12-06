@@ -131,6 +131,13 @@ def init_db():
             UNIQUE(anonymous_token)
         )
     """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS auctions (
+              auction_id TEXT PRIMARY KEY,
+              owner_public_key TEXT NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+              )
+    """)
     
     conn.commit()
     conn.close()
@@ -431,6 +438,33 @@ async def handle_register(data):
         if conn:
             conn.close()
 
+async def handle_register_auction(data):
+
+    conn  = None
+    try:
+        auction_id = data['auction_id']
+        owner_public_key_pem = data['owner_public_key']
+        anonymous_token = data['anonymous_token']
+        conn = sqlite3.connect(DB_PATH, timeout=10.0)
+        c = conn.cursor()
+
+        c.execute('''
+            INSERT INTO auctions (auction_id, owner_public_key)
+            VALUES (?, ?)
+                  ''', (auction_id, owner_public_key_pem))
+        conn.commit()
+        print (f"[NOTARY] Auction [{auction_id}] registered successfully.")
+        return {'status': 'success', 'message': 'Auction registered successfully.'}
+    except sqlite3.IntegrityError:
+        return {'status': 'error', 'message': 'Auction ID already exists.'}
+    except Exception as e:
+        print(f"  Register auction error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'status': 'error', 'message': str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 async def handle_login(data):
     #Autentica utilizador existente
@@ -736,23 +770,61 @@ async def handle_get_notary_public_key(data):
     }
 
 
+# Em server.py
+
 async def handle_reveal_identity(data):
-    # Endpoint do Notário para decifrar a identidade do vencedor (One-Shot Rule)
+    # Endpoint do Notário para decifrar a identidade do vencedor (Com Verificação de Assinatura)
     
     auction_id = data.get('auction_id')
-    encrypted_identity_blob = data.get('encrypted_identity_blob')
     winning_token = data.get('winning_token')
-    seller_user_id = data.get('seller_user_id') 
+    signature_hex = data.get('signature')  # <--- CAMPO OBRIGATÓRIO
+
+    if not signature_hex:
+        return {'status': 'error', 'message': 'Missing signature. Proof of ownership required.'}
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # 1. VERIFICAÇÃO ONE-SHOT (O "Filtro")
+    # 1. VERIFICAÇÃO ONE-SHOT (Mantém-se)
     c.execute('SELECT winner_username FROM revealed_winners WHERE auction_id = ?', (auction_id,))
     if c.fetchone():
         conn.close()
         return {'status': 'error', 'message': 'Identity already revealed for this auction.'}
+
+    # --- 2. NOVA SEGURANÇA: VALIDAR DONO ---
+    c.execute('SELECT owner_public_key FROM auction_owners WHERE auction_id = ?', (auction_id,))
+    row_owner = c.fetchone()
     
+    if not row_owner:
+        conn.close()
+        return {'status': 'error', 'message': 'Auction owner not registered'}
+    
+    owner_pub_key_pem = row_owner[0]
+    
+    try:
+        # Carregar chave pública do dono
+        owner_pub_key = serialization.load_pem_public_key(
+            owner_pub_key_pem.encode(), backend=default_backend()
+        )
+        
+        # Validar Assinatura: O dono assinou "auction_id|winning_token"
+        expected_data = f"{auction_id}|{winning_token}".encode('utf-8')
+        
+        owner_pub_key.verify(
+            bytes.fromhex(signature_hex),
+            expected_data,
+            padding.PSS(mgf=padding.MGF1(algorithm=hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
+            hashes.SHA256()
+        )
+        print(f"  ✓ Signature verified: Request comes from real auction owner.")
+        
+    except Exception as e:
+        conn.close()
+        print(f"  ✗ Signature verification failed: {e}")
+        return {'status': 'error', 'message': 'Invalid signature. You are not the auction owner.'}
+    # ------------------------------------
+
+    # 3. PROSSEGUIR PARA A DECIFRAGEM (Código Original)
     c.execute('''
         SELECT encrypted_identity_blob 
         FROM notary_vault 
@@ -762,27 +834,24 @@ async def handle_reveal_identity(data):
     row = c.fetchone()
     if not row:
         conn.close()
-        return {'status': 'error', 'message': 'Winning bid token or identity blob not found in Notary vault.'}
+        return {'status': 'error', 'message': 'Winning bid token not found in Notary vault.'}
         
     encrypted_identity_blob = row[0] 
 
-    # 2. DECIFRAGEM E VALIDAÇÃO
     try:
-        # 2.1 Decifrar o blob usando a Chave Privada do Notário
+        # Decifrar o blob usando a Chave Privada do Notário
         decrypted_bytes = SERVER_NOTARY_PRIV_KEY.decrypt(
             bytes.fromhex(encrypted_identity_blob),
             padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
         )
         decrypted_identity = json.loads(decrypted_bytes.decode())
         
-        # 2.2 Validação de Integridade
         if decrypted_identity.get('auction_id') != auction_id:
-            raise ValueError("Auction ID mismatch in decrypted data.")
+            raise ValueError("Auction ID mismatch.")
 
         winner_username = decrypted_identity.get('username')
         
-        # 3. REGISTO E FINALIZAÇÃO
-        # Só guarda o winner_username, garantindo a privacidade dos outros dados
+        # Registar revelação
         c.execute('INSERT INTO revealed_winners VALUES (?, ?, ?)', 
                   (auction_id, winner_username, datetime.now().isoformat()))
         conn.commit()
@@ -795,7 +864,7 @@ async def handle_reveal_identity(data):
 
     except Exception as e:
         conn.rollback()
-        response = {'status': 'error', 'message': f'Decryption/Verification Failed: {e}'}
+        response = {'status': 'error', 'message': f'Decryption Failed: {e}'}
 
     conn.close()
     return response
@@ -850,6 +919,7 @@ HANDLERS = {
     'GET_NOTARY_PUB_KEY': handle_get_notary_public_key,
     'reveal_identity': handle_reveal_identity,
     'store_identity_blob': handle_store_identity_blob,
+    'register_auction': handle_register_auction,
 }
 
 

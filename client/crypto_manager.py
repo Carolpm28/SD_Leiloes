@@ -63,6 +63,37 @@ class CryptoManager:
         if not self._notary_key_loaded:
             self._fetch_notary_public_key()
             self._notary_key_loaded = True
+
+    # Em crypto_manager.py (adiciona isto junto aos outros métodos de chaves)
+
+    def generate_ephemeral_keys(self):
+        """
+        Gera um par de chaves RSA temporário para um leilão específico.
+        Retorna: (private_key_pem, public_key_pem)
+        """
+        try:
+            private_key = rsa.generate_private_key(
+                public_exponent=65537,
+                key_size=2048,
+                backend=self.backend
+            )
+            public_key = private_key.public_key()
+            
+            priv_pem = private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ).decode()
+            
+            pub_pem = public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ).decode()
+            
+            return priv_pem, pub_pem
+        except Exception as e:
+            print(f"Erro ao gerar chaves efémeras: {e}")
+            return None, None
     
     def encrypt_identity_for_notary(self, auction_id: str, bid_value: float) -> str:
         # Cifra a identidade real (Certificado) usando a Chave Pública do Notário
