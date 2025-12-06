@@ -854,7 +854,7 @@ async def handle_reveal_identity(data):
         
         # --- Buscar public key do vencedor ---
         c.execute('SELECT public_key FROM users WHERE user_id = ?', (winner_user_id,))
-        row_key = c.fetchone
+        row_key = c.fetchone()
         if not row_key:
             raise ValueError("Winner user ID not found.")
         winner_public_key = row_key[0]

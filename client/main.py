@@ -281,7 +281,6 @@ def on_identity_reveal_received(data):
         encrypted_seller_name = data.get('seller_username')
         auction_id = data.get('auction_id')
         
-        print(f"\nRecebida Identidade do Vendedor: {seller_name}")
         # Desencriptar o nome do vendedor
         seller_name = crypto.decrypt_message(encrypted_seller_name)
 
