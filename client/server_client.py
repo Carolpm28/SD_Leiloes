@@ -30,7 +30,7 @@ class ServerClient:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(SOCKET_TIMEOUT)
             
-            # 3. Envolve o socket com SSL/TLS (O PASSO CRÍTICO)
+            # 3. Envolve o socket com SSL/TLS 
             wrapped_socket = ssl_context.wrap_socket(s, server_hostname=self.server_host)
             
             # 4. Conecta

@@ -212,7 +212,7 @@ def demo_blind_signature_flow():
     print("=== PRIVACY CHECK ===")
     print("Server never saw:", message)
     print("Server only signed a blinded version")
-    print("But token is verifiable by anyone! ✓")
+    print("But token is verifiable by anyone! ")
 
 
 if __name__ == "__main__":

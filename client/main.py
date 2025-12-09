@@ -769,7 +769,7 @@ def register_user_endpoint():
         return jsonify({"error": "Username and password required"}), 400
     
     try:
-        # Tenta descobrir o IP (igual ao que tinhas)
+        # Tenta descobrir o IP 
         import socket
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -781,7 +781,7 @@ def register_user_endpoint():
         
         print(f"Registering with IP: {my_ip}, Port: {network.port}")
         
-        # --- A CORREÇÃO ESTÁ AQUI ---
+        
         # Em vez de gerar chaves aqui manualmente, chamamos o manager
         success, message = crypto.register(
             username=username,
@@ -797,9 +797,6 @@ def register_user_endpoint():
             
             print(f"\nUser '{username}' registered successfully (ID: {my_user_id})")
             
-            # (O resto da lógica de descoberta de peers mantém-se igual...)
-            # Copia apenas a parte da Descoberta de Peers do teu código antigo para aqui se quiseres
-            # Mas o essencial para as chaves é o bloco acima.
 
             return jsonify({
                 "message": "User registered successfully. Please login.",
