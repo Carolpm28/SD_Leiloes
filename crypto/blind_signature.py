@@ -1,17 +1,3 @@
-"""
-Implementação de RSA Blind Signatures
-Permite ao servidor assinar mensagens sem conhecer o seu conteúdo
-
-Protocolo:
-1. Cliente: gera mensagem m, blinding factor r
-2. Cliente: calcula m' = blind(m, r, public_key) 
-3. Cliente -> Servidor: m'
-4. Servidor: calcula s' = sign(m', private_key)
-5. Servidor -> Cliente: s'
-6. Cliente: calcula s = unblind(s', r, public_key)
-7. Cliente pode agora usar (m, s) como token anónimo
-8. Qualquer um pode verificar que s é assinatura válida de m usando public_key
-"""
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
@@ -20,22 +6,22 @@ import hashlib
 
 
 class BlindSignature:
-    """Implementação de RSA Blind Signatures"""
+    # Implementação de RSA Blind Signatures
     
     def __init__(self, key_size=2048):
         self.key_size = key_size
         self.backend = default_backend()
     
     def _bytes_to_int(self, b):
-        """Converte bytes para inteiro"""
+        # Converte bytes para inteiro
         return int.from_bytes(b, byteorder='big')
     
     def _int_to_bytes(self, i, length):
-        """Converte inteiro para bytes"""
+        # Converte inteiro para bytes
         return i.to_bytes(length, byteorder='big')
     
     def _hash_message(self, message):
-        """Hash da mensagem (SHA-256)"""
+        # Hash da mensagem (SHA-256)
         if isinstance(message, str):
             message = message.encode('utf-8')
         digest = hashes.Hash(hashes.SHA256(), backend=self.backend)
@@ -43,10 +29,8 @@ class BlindSignature:
         return digest.finalize()
     
     def generate_blinding_factor(self, public_key):
-        """
-        Gera fator de blinding aleatório r
-        r deve ser coprimo com n (módulo da chave pública)
-        """
+        # Gera fator de blinding aleatório r
+        # r deve ser coprimo com n (módulo da chave pública)
         n = public_key.public_numbers().n
         e = public_key.public_numbers().e
         
@@ -59,16 +43,8 @@ class BlindSignature:
         return r, r_e
     
     def blind(self, message, public_key):
-        """
-        Cliente: cega a mensagem antes de enviar ao servidor
+        # Cliente: cega a mensagem antes de enviar ao servidor
         
-        Args:
-            message: mensagem original (bytes ou string)
-            public_key: chave pública do servidor
-        
-        Returns:
-            (blinded_message, blinding_factor, message_hash)
-        """
         # Hash da mensagem
         m_hash = self._hash_message(message)
         m = self._bytes_to_int(m_hash)
@@ -86,16 +62,8 @@ class BlindSignature:
         return m_blinded, r, m_hash
     
     def blind_sign(self, blinded_message, private_key):
-        """
-        Servidor: assina mensagem cega (sem saber o conteúdo)
-        
-        Args:
-            blinded_message: mensagem cega (inteiro)
-            private_key: chave privada do servidor
-        
-        Returns:
-            blinded_signature (inteiro)
-        """
+       # Servidor: assina mensagem cega (sem saber o conteúdo)
+
         # Parâmetros da chave privada
         n = private_key.private_numbers().public_numbers.n
         d = private_key.private_numbers().d
@@ -106,17 +74,8 @@ class BlindSignature:
         return s_blinded
     
     def unblind(self, blinded_signature, blinding_factor, public_key):
-        """
-        Cliente: remove blinding para obter assinatura real
+        #Cliente: remove blinding para obter assinatura real
         
-        Args:
-            blinded_signature: assinatura cega recebida do servidor
-            blinding_factor: r usado no blinding
-            public_key: chave pública do servidor
-        
-        Returns:
-            signature (assinatura real)
-        """
         n = public_key.public_numbers().n
         
         # Calcular inverso modular de r
@@ -128,17 +87,8 @@ class BlindSignature:
         return signature
     
     def verify(self, message, signature, public_key):
-        """
-        Qualquer um pode verificar a assinatura
+        #Qualquer um pode verificar a assinatura
         
-        Args:
-            message: mensagem original (bytes ou string)
-            signature: assinatura (inteiro)
-            public_key: chave pública do servidor
-        
-        Returns:
-            True se válida, False caso contrário
-        """
         # Hash da mensagem
         m_hash = self._hash_message(message)
         m = self._bytes_to_int(m_hash)
@@ -166,9 +116,8 @@ class BlindSignature:
         return token
     
     def token_to_signature(self, token):
-        """
-        Parse token para extrair message_hash e signature
-        """
+        # Parse token para extrair message_hash e signature
+
         parts = token.split(":")
         if len(parts) != 2:
             raise ValueError("Invalid token format")
@@ -202,7 +151,8 @@ class BlindSignature:
 # ==================== FLUXO COMPLETO ====================
 
 def demo_blind_signature_flow():
-    """Demonstração do protocolo completo"""
+    # Demonstração do protocolo completo
+
     print("=== BLIND SIGNATURE PROTOCOL DEMO ===\n")
     
     # Setup: Servidor gera chaves
@@ -213,7 +163,7 @@ def demo_blind_signature_flow():
         backend=default_backend()
     )
     server_public = server_private.public_key()
-    print("   ✓ Server keys ready\n")
+    print("   Server keys ready\n")
     
     bs = BlindSignature()
     # Cliente quer obter token anónimo
@@ -251,14 +201,14 @@ def demo_blind_signature_flow():
     # Verificação: Qualquer um pode verificar o token
     print("9. Anyone can verify the token is valid...")
     valid = bs.verify(message, signature, server_public)
-    print(f"   ✓ Token is valid: {valid}\n")
+    print(f"  Token is valid: {valid}\n")
     
     # Verificação alternativa usando só o token
     print("10. Verify using only the token...")
     valid2 = bs.verify_token(token, server_public)
-    print(f"    ✓ Token verification: {valid2}\n")
-    
-    # Importante: Servidor NÃO conhece a mensagem original!
+    print(f"   Token verification: {valid2}\n")
+
+    # O servidor não conhece a mensagem original
     print("=== PRIVACY CHECK ===")
     print("Server never saw:", message)
     print("Server only signed a blinded version")

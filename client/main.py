@@ -83,8 +83,8 @@ except Exception as e:
 
 
 def get_or_update_blind_key():
-    """Obtém a chave pública de Blind Signature do servidor se ainda não existir"""
-    global server_blind_pub_key  # <--- Fundamental para aceder à variável global
+    #Obtém a chave pública de Blind Signature do servidor se ainda não existir
+    global server_blind_pub_key  
     
     # Se já tivermos a chave, não precisamos de pedir novamente
     if server_blind_pub_key is not None:
@@ -129,7 +129,6 @@ def on_auction_received(auction: Auction):
             if ':' not in auction.anonymous_token:
                 print(f"Token sem ':' - formato inválido: {type(auction.anonymous_token)}")
             else:
-                # MUDANÇA AQUI: Usa server_blind_pub_key em vez de public_key
                 if not bs.verify_token(auction.anonymous_token, server_blind_pub_key):
                     print("Token inválido! Auction rejeitado.")
                     return
@@ -144,7 +143,6 @@ def on_auction_received(auction: Auction):
 
 
 def on_bid_received(bid: Bid):
-    # CORREÇÃO: Declarar global logo no início para evitar o SyntaxError
     global server_blind_pub_key
     
     print(f"Bid token (primeiros 100 chars): {bid.anonymous_token[:100] if bid.anonymous_token else 'None'}...")
@@ -632,7 +630,7 @@ def add_peer():
 
 @app.route('/api/peers/discover', methods=['POST'])
 def discover_peers():
-    """Descobre peers registados no servidor central"""
+    #Descobre peers registados no servidor central
     try:
         users = server.get_users_list()
         

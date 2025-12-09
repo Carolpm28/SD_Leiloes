@@ -1,17 +1,3 @@
-"""
-Timestamp Authority (TSA) service
-
-Provides a small TimestampService that:
-- loads or generates a dedicated RSA keypair for timestamping (stored in DB)
-- issues signed timestamps for an item (item id or hash)
-- stores the signed payload and signature in a `timestamps` table
-
-Usage:
-  from crypto.timestamp_service import TimestampService
-  tsa = TimestampService(db_path='server.db')
-  result = tsa.issue_timestamp('item-hash-or-id')
-  # result contains id, payload dict, base64 signature
-"""
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
@@ -100,11 +86,9 @@ class TimestampService:
         conn.close()
 
     def issue_timestamp(self, item_hash, action='issue_token', client_time=None):
-        """
-        Issue a signed timestamp for `item_hash`.
+        # Issue a signed timestamp for `item_hash`.
+        # Returns a dict with: id, payload (dict), signature (base64 string)
 
-        Returns a dict with: id, payload (dict), signature (base64 string)
-        """
         nonce = secrets.token_hex(16)
         if client_time is None:
             client_time = datetime.utcnow().isoformat() + 'Z'

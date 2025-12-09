@@ -16,7 +16,7 @@ class ServerClient:
         self.server_port = server_port
     
     def request(self, action: str, data: dict = {}) -> dict:
-        """Envia pedido ao servidor via SSL/TLS e retorna resposta"""
+        # Envia pedido ao servidor via SSL/TLS e retorna resposta
         
         SOCKET_TIMEOUT = 10 
         
@@ -73,7 +73,7 @@ class ServerClient:
         return self.request('register', payload)
     
     def register_auction(self, auction_id, owner_public_key, anonymous_token):
-        """Regista o leilão e a chave pública no Notário (Servidor)"""
+        # Regista o leilão e a chave pública no Notário (Servidor)
         return self.request('register_auction', {
             'auction_id': auction_id,
             'owner_public_key': owner_public_key,

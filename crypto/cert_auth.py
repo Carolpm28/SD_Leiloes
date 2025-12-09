@@ -1,7 +1,6 @@
-"""
-Certificate Authority (CA) em memória
-Aceita ficheiros PEM diretamente (sem paths)
-"""
+#Certificate Authority (CA) em memória
+#Aceita ficheiros PEM diretamente (sem paths)
+
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -12,10 +11,9 @@ import datetime
 
 
 class AuctionCA:
-    """
-    Certificate Authority (CA) em memória
-    Pode ser criada a partir de PEMs existentes ou gerar novos.
-    """
+    # Certificate Authority (CA) em memória
+    # Pode ser criada a partir de PEMs existentes ou gerar novos.
+
 
     def __init__(self, ca_key_pem=None, ca_cert_pem=None):
         self.backend = default_backend()
@@ -31,15 +29,15 @@ class AuctionCA:
                 ca_cert_pem.encode() if isinstance(ca_cert_pem, str) else ca_cert_pem,
                 self.backend
             )
-            print("✓ CA loaded from PEM data")
+            print("CA loaded from PEM data")
         else:
             # Criar nova CA
             print("Creating new in-memory CA...")
             self.ca_private_key, self.ca_cert = self._create_ca()
-            print("✓ New CA generated")
+            print("New CA generated")
 
     def _create_ca(self):
-        """Cria uma nova chave e certificado autoassinado"""
+        # Cria uma nova chave e certificado autoassinado
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=4096,
@@ -69,7 +67,7 @@ class AuctionCA:
         return private_key, cert
 
     def issue_certificate(self, user_id, username, user_public_key, validity_days=365):
-        """Emite certificado X.509 para utilizador"""
+        # Emite certificado X.509 para utilizador
         subject = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, "PT"),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Auction System"),
@@ -94,7 +92,7 @@ class AuctionCA:
         return cert.public_bytes(serialization.Encoding.PEM).decode()
 
     def verify_certificate(self, cert_pem):
-        """Verifica se um certificado foi emitido por esta CA"""
+        # Verifica se um certificado foi emitido por esta CA
         try:
             cert = x509.load_pem_x509_certificate(
                 cert_pem.encode() if isinstance(cert_pem, str) else cert_pem,
@@ -124,11 +122,11 @@ class AuctionCA:
             return False, None, None
 
     def get_ca_certificate_pem(self):
-        """Retorna o certificado da CA em PEM"""
+        # Retorna o certificado da CA em PEM
         return self.ca_cert.public_bytes(serialization.Encoding.PEM).decode()
 
     def get_ca_private_key_pem(self):
-        """Retorna a chave privada da CA em PEM"""
+        # Retorna a chave privada da CA em PEM
         return self.ca_private_key.private_bytes(
             serialization.Encoding.PEM,
             serialization.PrivateFormat.TraditionalOpenSSL,
@@ -136,17 +134,5 @@ class AuctionCA:
         ).decode()
 
 
-# 🔧 Teste rápido
-if __name__ == "__main__":
-    from cryptography.hazmat.primitives.asymmetric import rsa
 
-    ca = AuctionCA()  # Cria nova CA em memória
-    print("\nCA certificate:\n", ca.get_ca_certificate_pem()[:120], "...")
 
-    # Gerar chave de utilizador
-    user_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    cert_pem = ca.issue_certificate("user123", "alice", user_key.public_key())
-    print("\nUser certificate:\n", cert_pem[:120], "...")
-
-    valid, uid, uname = ca.verify_certificate(cert_pem)
-    print(f"✓ Verification: {valid}, user={uname}, id={uid}")

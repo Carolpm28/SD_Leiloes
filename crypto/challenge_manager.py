@@ -11,10 +11,8 @@ class Challenge_Manager:
         self.expiration_time = expiration_time  # tempo em segundos para expiração do desafio
 
     def generate_challenge(self, username, public_key_pem):
-        """
-        Gera um nonce, cifra-o com a chave pública do user e guarda-o.
-        Retorna: O desafio cifrado em Hex.
-        """
+        # Gera um nonce, cifra-o com a chave pública do user e guarda-o.
+        # Retorna: O desafio cifrado em Hex.
         
         #gerar nonce
         nonce = str(secrets.randbits(128)) 
@@ -49,10 +47,9 @@ class Challenge_Manager:
             return None
         
     def verify_response(self, username, response):
-        """
-        Verifica se a resposta ao desafio é correta e não expirou.
-        Retorna: True se correto, False caso contrário.
-        """
+        # Verifica se a resposta ao desafio é correta e não expirou.
+        # Retorna: True se correto, False caso contrário.
+        
         if username not in self.challenges:
             return False
         

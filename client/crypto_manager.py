@@ -41,7 +41,7 @@ class CryptoManager:
     def _fetch_notary_public_key(self):
         # Vai buscar a chave pública do Notário ao servidor
         try:
-            response = self.server_client.request('GET_NOTARY_PUB_KEY', {}) # Assumindo um novo endpoint no server.py
+            response = self.server_client.request('GET_NOTARY_PUB_KEY', {}) 
             
             if response and response.get('status') == 'success':
                 pub_key_pem = response.get('notary_pub_key')
@@ -65,10 +65,8 @@ class CryptoManager:
             self._notary_key_loaded = True
 
     def generate_ephemeral_keys(self):
-        """
-        Gera um par de chaves RSA temporário para um leilão específico.
-        Retorna: (private_key_pem, public_key_pem)
-        """
+        #Gera um par de chaves RSA temporário para um leilão específico.
+        #Retorna: (private_key_pem, public_key_pem)
         try:
             private_key = rsa.generate_private_key(
                 public_exponent=65537,
@@ -125,11 +123,11 @@ class CryptoManager:
         return encrypted_bytes.hex()
     
     def get_certificate(self):
-        """Retorna o certificado para enviar ao vendedor"""
+        #Retorna o certificado para enviar ao vendedor
         return self.certificate
 
     def extract_name_from_cert(self, cert_pem):
-        """Extrai o Common Name (CN) de uma string de certificado PEM"""
+        #Extrai o Common Name (CN) de uma string de certificado PEM
         try:
             if isinstance(cert_pem, str):
                 cert_pem = cert_pem.encode()
@@ -461,7 +459,7 @@ class CryptoManager:
     # ==================== ENCRIPTACAO DE MENSAGENS ====================
 
     def encrypt_message(self, message: str, public_key_pem: str) -> str:
-        """Cifra uma string usando uma chave pública externa"""
+        #Cifra uma string usando uma chave pública externa
         try:
             pub_key = serialization.load_pem_public_key(
                 public_key_pem.encode() if isinstance(public_key_pem, str) else public_key_pem,
@@ -481,7 +479,7 @@ class CryptoManager:
             return None
 
     def decrypt_message(self, ciphertext_hex: str) -> str:
-        """Decifra uma mensagem hex usando a MINHA chave privada"""
+        #Decifra uma mensagem hex usando a MINHA chave privada
         try:
             ciphertext = bytes.fromhex(ciphertext_hex)
             plaintext = self.private_key.decrypt(
@@ -496,5 +494,6 @@ class CryptoManager:
         except Exception as e:
             print(f"Decryption error: {e}")
             return None
+        
 if __name__ == "__main__":
     print("=== CryptoManager Test ===")

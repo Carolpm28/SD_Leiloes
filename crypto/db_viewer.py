@@ -1,11 +1,3 @@
-"""
-Simple SQLite DB viewer for `server.db`.
-Run from project root as:
-
-    python -m crypto.db_viewer
-
-This opens a small Tkinter window where you can select a table and view rows.
-"""
 import os
 import sys
 import sqlite3

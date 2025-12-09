@@ -143,12 +143,11 @@ def init_db():
     conn.close()
 
 def init_ssl_keys():
-    """
-    Gere chaves SSL:
-    1. Tenta carregar da BD.
-    2. Se não existir, gera novas e guarda na BD.
-    3. Escreve ficheiros físicos (.pem) para o módulo SSL usar.
-    """
+    #Gere chaves SSL:
+    #1. Tenta carregar da BD.
+    #2. Se não existir, gera novas e guarda na BD.
+    #3. Escreve ficheiros físicos (.pem) para o módulo SSL usar.
+
     print("[SSL] Checking SSL keys...")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -160,11 +159,11 @@ def init_ssl_keys():
     key_pem = None
 
     if row and row[0] and row[1]:
-        print("  ✓ Found SSL keys in database")
+        print("  Found SSL keys in database")
         cert_pem = row[0]
         key_pem = row[1]
     else:
-        print("  ↪ Generating new Self-Signed SSL Certificate...")
+        print("  Generating new Self-Signed SSL Certificate...")
         
         # 1. Gerar Chave Privada
         key = rsa.generate_private_key(
@@ -208,7 +207,7 @@ def init_ssl_keys():
         c.execute('INSERT OR REPLACE INTO ssl_keys (id, cert_pem, key_pem) VALUES (1, ?, ?)', 
                   (cert_pem, key_pem))
         conn.commit()
-        print("  ✓ New SSL keys generated and saved to DB")
+        print("  New SSL keys generated and saved to DB")
 
     conn.close()
 
@@ -220,7 +219,7 @@ def init_ssl_keys():
     with open("server_key.pem", "wb") as f:
         f.write(key_pem)
         
-    print("  ✓ SSL files 'server_cert.pem' and 'server_key.pem' exported/verified")
+    print("   SSL files 'server_cert.pem' and 'server_key.pem' exported/verified")
 
 
 def init_auction_ca():
@@ -335,10 +334,7 @@ def init_blind_signature_keys():
 # ============================================================================
 
 async def handle_get_challenge(data):
-
-    """
-    Gera desafio genérico para autenticação do utilizador
-    """
+    #Gera desafio genérico para autenticação do utilizador
     print("[CHALLENGE] Generating challenge...")
     conn = None
     try:
@@ -658,7 +654,7 @@ async def handle_get_users(data=None):
 
 
 async def handle_timestamp(data):
-    #Gera timestamp confiável para lance
+    #Gera timestamp confiável para o bid
     conn = None
     try:
         bid_data = data['bid_data']
@@ -770,14 +766,12 @@ async def handle_get_notary_public_key(data):
     }
 
 
-# Em server.py
-
 async def handle_reveal_identity(data):
     # Endpoint do Notário para decifrar a identidade do vencedor (Com Verificação de Assinatura)
     
     auction_id = data.get('auction_id')
     winning_token = data.get('winning_token')
-    signature_hex = data.get('signature')  # <--- CAMPO OBRIGATÓRIO
+    signature_hex = data.get('signature') 
 
     if not signature_hex:
         return {'status': 'error', 'message': 'Missing signature. Proof of ownership required.'}
@@ -785,13 +779,13 @@ async def handle_reveal_identity(data):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # 1. VERIFICAÇÃO ONE-SHOT (Mantém-se)
+    # 1. VERIFICAÇÃO ONE-SHOT
     c.execute('SELECT winner_username FROM revealed_winners WHERE auction_id = ?', (auction_id,))
     if c.fetchone():
         conn.close()
         return {'status': 'error', 'message': 'Identity already revealed for this auction.'}
 
-    # --- 2. NOVA SEGURANÇA: VALIDAR DONO ---
+    # --- 2. VALIDAR DONO ---
     c.execute('SELECT owner_public_key FROM auction_owners WHERE auction_id = ?', (auction_id,))
     row_owner = c.fetchone()
     
@@ -816,15 +810,14 @@ async def handle_reveal_identity(data):
             padding.PSS(mgf=padding.MGF1(algorithm=hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH),
             hashes.SHA256()
         )
-        print(f"  ✓ Signature verified: Request comes from real auction owner.")
+        print(f"  Signature verified: Request comes from real auction owner.")
         
     except Exception as e:
         conn.close()
-        print(f"  ✗ Signature verification failed: {e}")
+        print(f"  Signature verification failed: {e}")
         return {'status': 'error', 'message': 'Invalid signature. You are not the auction owner.'}
-    # ------------------------------------
 
-    # 3. PROSSEGUIR PARA A DECIFRAGEM (Código Original)
+    # 3. Processeguir para a decifragem
     c.execute('''
         SELECT encrypted_identity_blob 
         FROM notary_vault 
@@ -852,7 +845,7 @@ async def handle_reveal_identity(data):
         winner_username = decrypted_identity.get('username')
         winner_user_id = decrypted_identity.get('user_id')
         
-        # --- Buscar public key do vencedor ---
+        # --- public key do vencedor ---
         c.execute('SELECT public_key FROM users WHERE user_id = ?', (winner_user_id,))
         row_key = c.fetchone()
         if not row_key:
@@ -940,7 +933,7 @@ HANDLERS = {
 async def handle_client(reader, writer):
     #Handle client connection
     addr = writer.get_extra_info('peername')
-    print(f"→ Connection from {addr}")
+    print(f" Connection from {addr}")
     
     # --- SONDAGEM DE DIAGNÓSTICO ---
     ssl_object = writer.get_extra_info('ssl_object')
@@ -950,7 +943,7 @@ async def handle_client(reader, writer):
         print("[SSL DEBUG] Conexão NÃO segura (texto limpo)")
     # -------------------------------
 
-    print(f"→ Connection from {addr}")
+    print(f"Connection from {addr}")
 
     try:
         data_bytes = await reader.read(100000)
@@ -964,7 +957,6 @@ async def handle_client(reader, writer):
         action = data.get('action')
         print(f"  Action: {action}")
         
-        # --- NOVO ROTEAMENTO: USAR DICIONÁRIO HANDLERS ---
         if action in HANDLERS:
             response = await HANDLERS[action](data)
         else:

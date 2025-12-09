@@ -1,7 +1,6 @@
-"""
-Script de teste para verificar startup do servidor
-Executa testes locais sem iniciar o Flask
-"""
+#Script de teste para verificar startup do servidor
+#Executa testes locais sem iniciar o Flask
+
 import sys
 import os
 import sqlite3
@@ -45,7 +44,7 @@ def test_database():
             'bid_bidders'
         ]
         
-        print(f"\n  📊 Tables created: {len(tables)}")
+        print(f"\n   Tables created: {len(tables)}")
         for table in tables:
             check = "✓" if table in expected_tables else "✗"
             print(f"    {check} {table}")
@@ -53,14 +52,14 @@ def test_database():
         conn.close()
         
         if set(tables) == set(expected_tables):
-            print("\n  ✅ Database test PASSED")
+            print("\n   Database test PASSED")
             return True
         else:
-            print("\n  ❌ Database test FAILED - Missing tables")
+            print("\n   Database test FAILED - Missing tables")
             return False
             
     except Exception as e:
-        print(f"\n  ❌ Database test FAILED: {e}")
+        print(f"\n   Database test FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -78,7 +77,7 @@ def test_ca():
         ca1 = init_auction_ca()
         
         if ca1 is None:
-            print("  ❌ CA initialization returned None")
+            print("   CA initialization returned None")
             return False
         
         # Verificar se foi guardado na BD
@@ -89,17 +88,17 @@ def test_ca():
         conn.close()
         
         if not row:
-            print("  ❌ CA not saved to database")
+            print("   CA not saved to database")
             return False
-        
-        print("  ✓ CA created and saved")
-        
+
+        print("   CA created and saved")
+
         # Segunda inicialização (carregar CA)
         print("\n  • Second initialization (loading CA)...")
         ca2 = init_auction_ca()
         
         if ca2 is None:
-            print("  ❌ CA loading returned None")
+            print("   CA loading returned None")
             return False
         
         # Verificar se é a mesma CA
@@ -107,15 +106,15 @@ def test_ca():
         cert2_bytes = ca2.ca_cert.public_bytes(serialization.Encoding.PEM)
         
         if cert1_bytes == cert2_bytes:
-            print("  ✓ CA loaded correctly (same certificate)")
-            print("\n  ✅ CA test PASSED")
+            print("   CA loaded correctly (same certificate)")
+            print("\n   CA test PASSED")
             return True
         else:
-            print("  ❌ CA mismatch - different certificates")
+            print("   CA mismatch - different certificates")
             return False
             
     except Exception as e:
-        print(f"\n  ❌ CA test FAILED: {e}")
+        print(f"\n   CA test FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -139,10 +138,10 @@ def test_server_keys():
         priv1, pub1 = init_server_keys()
         
         if not os.path.exists('server_private.pem') or not os.path.exists('server_public.pem'):
-            print("  ❌ Key files not created")
+            print("   Key files not created")
             return False
         
-        print("  ✓ Keys generated and saved")
+        print("   Keys generated and saved")
         
         # Segunda inicialização (carregar chaves)
         print("\n  • Second initialization (loading keys)...")
@@ -161,15 +160,15 @@ def test_server_keys():
         )
         
         if pub1_bytes == pub2_bytes:
-            print("  ✓ Keys loaded correctly (same keys)")
-            print("\n  ✅ Server keys test PASSED")
+            print("   Keys loaded correctly (same keys)")
+            print("\n   Server keys test PASSED")
             return True
         else:
-            print("  ❌ Key mismatch - different keys")
+            print("   Key mismatch - different keys")
             return False
             
     except Exception as e:
-        print(f"\n  ❌ Server keys test FAILED: {e}")
+        print(f"\n   Server keys test FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -195,29 +194,29 @@ def test_blind_signatures():
         
         # Cliente: blind
         blinded_msg, r, msg_hash = bs.blind(message, pub_key)
-        print("  ✓ Message blinded")
+        print("   Message blinded")
         
         # Servidor: sign
         blinded_sig = bs.blind_sign(blinded_msg, priv_key)
-        print("  ✓ Blinded message signed")
+        print("   Blinded message signed")
         
         # Cliente: unblind
         signature = bs.unblind(blinded_sig, r, pub_key)
-        print("  ✓ Signature unblinded")
+        print("   Signature unblinded")
         
         # Verificar
         valid = bs.verify(message, signature, pub_key)
         
         if valid:
-            print("  ✓ Signature verified successfully")
-            print("\n  ✅ Blind signatures test PASSED")
+            print("   Signature verified successfully")
+            print("\n   Blind signatures test PASSED")
             return True
         else:
-            print("  ❌ Signature verification failed")
+            print("   Signature verification failed")
             return False
             
     except Exception as e:
-        print(f"\n  ❌ Blind signatures test FAILED: {e}")
+        print(f"\n   Blind signatures test FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -233,24 +232,24 @@ def test_timestamp_service():
         
         # Inicializar serviço
         tsa = TimestampService(db_path='server.db')
-        print("  ✓ TimestampService initialized")
+        print("   TimestampService initialized")
         
         # Emitir timestamp
         item_hash = "TEST_ITEM_HASH_123"
         ts = tsa.issue_timestamp(item_hash)
-        print("  ✓ Timestamp issued")
+        print("   Timestamp issued")
         
         # Verificar campos
         if ts['payload']['item'] == item_hash:
-            print("  ✓ Timestamp payload verified")
-            print("\n  ✅ Timestamp service test PASSED")
+            print("  Timestamp payload verified")
+            print("\n  Timestamp service test PASSED")
             return True
         else:
-            print("  ❌ Timestamp payload mismatch")
+            print("  Timestamp payload mismatch")
             return False
             
     except Exception as e:
-        print(f"\n  ❌ Timestamp service test FAILED: {e}")
+        print(f"\n  Timestamp service test FAILED: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -258,7 +257,7 @@ def test_timestamp_service():
 def run_all_tests():
     """Executa todos os testes"""
     print("\n" + "=" * 60)
-    print("🧪 AUCTION SERVER - STARTUP TESTS")
+    print("AUCTION SERVER - STARTUP TESTS")
     print("=" * 60)
     
     results = []
@@ -280,14 +279,14 @@ def run_all_tests():
     
     # Summary
     print("\n" + "=" * 60)
-    print("📊 TEST SUMMARY")
+    print("TEST SUMMARY")
     print("=" * 60)
     
     passed = sum(1 for _, result in results if result)
     total = len(results)
     
     for name, result in results:
-        status = "✅ PASS" if result else "❌ FAIL"
+        status = "PASS" if result else "FAIL"
         print(f"  {status} - {name}")
     
     print("\n" + "=" * 60)
@@ -303,10 +302,10 @@ if __name__ == '__main__':
     success = run_all_tests()
     
     if success:
-        print("✅ All tests passed! Server is ready to run.")
+        print("All tests passed! Server is ready to run.")
         print("\nYou can now start the server with:")
         print("  python server/main.py")
         sys.exit(0)
     else:
-        print("❌ Some tests failed. Please fix issues before running server.")
+        print("Some tests failed. Please fix issues before running server.")
         sys.exit(1)

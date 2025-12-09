@@ -1,12 +1,6 @@
-
-"""
-Package initializer for the local `crypto` package used in this project.
-Exposes KeyManager and helper functions from crypto.keys for convenience.
-
-This file ensures `import crypto.keys` and `from crypto import KeyManager` work
-when the package is used locally in the project and when tools like Pylance
-resolve imports.
-"""
+#package initializer para o pacote local `crypto` usado neste projeto.Expõe KeyManager e funções auxiliares de crypto.keys para conveniência.
+#Este arquivo garante que `import crypto.keys` e `from crypto import KeyManager` funcionem 
+# quando o pacote for usado localmente no projeto e quando ferramentas como Pylance resolverem importações.
 
 from .keys import (
 	KeyManager,
